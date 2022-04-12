@@ -15,12 +15,12 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 //
 
-#ifndef ABCLASS_ABCLASS_NET_CV_H
-#define ABCLASS_ABCLASS_NET_CV_H
+#ifndef ABCLASS_ABCLASS_GLASSO_CV_H
+#define ABCLASS_ABCLASS_GLASSO_CV_H
 
 #include <utility>
 #include <RcppArmadillo.h>
-#include "AbclassNet.h"
+#include "AbclassGroupLasso.h"
 #include "CrossValidation.h"
 #include "utils.h"
 
@@ -28,9 +28,9 @@ namespace abclass {
 
     // cross-validation method for AbclassNet objects
     template <typename T>
-    inline void abclass_net_cv(T& obj,
-                               const unsigned int nfolds = 5,
-                               const arma::uvec strata = arma::uvec())
+    inline void abclass_glasso_cv(T& obj,
+                                  const unsigned int nfolds = 5,
+                                  const arma::uvec strata = arma::uvec())
     {
         CrossValidation cv_obj { obj.n_obs_, nfolds, strata };
         obj.cv_accuracy_ = arma::zeros(obj.lambda_.n_elem, nfolds);
@@ -52,7 +52,8 @@ namespace abclass {
             new_obj.set_data(std::move(train_x),
                              std::move(train_y))->set_k(obj.k_);
             new_obj.set_weight(std::move(train_weight));
-            new_obj.fit(obj.lambda_, obj.alpha_, 0, 1,
+            // TODO: let cv jobs have their own lambda sequences
+            new_obj.fit(obj.lambda_, 0, 1, obj.group_weight_,
                         obj.max_iter_, obj.epsilon_,
                         obj.varying_active_set_, 0);
             for (size_t l { 0 }; l < obj.lambda_.n_elem; ++l) {

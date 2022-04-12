@@ -20,13 +20,13 @@
 #include "export-helpers.h"
 
 // [[Rcpp::export]]
-Rcpp::List rcpp_boost_net(
+Rcpp::List rcpp_hinge_boost_glasso(
     const arma::mat& x,
     const arma::uvec& y,
     const arma::vec& lambda,
-    const double alpha,
     const unsigned int nlambda,
     const double lambda_min_ratio,
+    const arma::vec& group_weight,
     const arma::vec& weight,
     const bool intercept = true,
     const bool standardize = true,
@@ -35,16 +35,15 @@ Rcpp::List rcpp_boost_net(
     const unsigned int max_iter = 1e5,
     const double epsilon = 1e-4,
     const bool varying_active_set = true,
-    const double inner_min = -6.9,
+    const double lum_c = 0.0,
     const unsigned int verbose = 0
     )
 {
-    abclass::BoostNet object {
-        x, y, intercept, standardize, weight
+    abclass::HingeBoostGLasso object {
+        x, y, lum_c, intercept, standardize, weight
     };
-    object.set_inner_min(inner_min);
-    return abclass_net_fit(object, y,
-                           lambda, alpha, nlambda, lambda_min_ratio,
-                           nfolds, stratified_cv, max_iter, epsilon,
-                           varying_active_set, verbose);
+    return abclass_glasso_fit(object, y,
+                              lambda, nlambda, lambda_min_ratio, group_weight,
+                              nfolds, stratified_cv, max_iter, epsilon,
+                              varying_active_set, verbose);
 }

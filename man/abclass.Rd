@@ -14,13 +14,15 @@ abclass(
   alpha = 0.5,
   nlambda = 50,
   lambda_min_ratio = NULL,
+  grouped = FALSE,
+  group_weight = NULL,
   nfolds = 0,
   stratified_cv = TRUE,
   lum_a = 1,
-  lum_c = 0,
-  boost_umin = -3,
+  lum_c = 1,
+  boost_umin = -5,
   max_iter = 1e+05,
-  rel_tol = 1e-04,
+  epsilon = 0.001,
   standardize = TRUE,
   varying_active_set = TRUE,
   verbose = 0,
@@ -70,6 +72,11 @@ smallest lambda parameter to the largest lambda parameter.  The default
 value is set to \code{1e-4} if the sample size is larger than the number
 of predictors, and \code{1e-2} otherwise.}
 
+\item{grouped}{A logicial value.  Experimental flag to apply group Lasso.}
+
+\item{group_weight}{A numerical vector with nonnegative values representing
+the adaptive penalty factors for grouped lasso.}
+
 \item{nfolds}{A nonnegative integer specifying the number of folds for
 cross-validation.  The default value is \code{0} and no cross-validation
 will be performed if \code{nfolds < 2}.}
@@ -78,22 +85,22 @@ will be performed if \code{nfolds < 2}.}
 procedure should be stratified by the response label. The default value
 is \code{TRUE}.}
 
-\item{lum_a}{A positive number specifying the parameter \emph{a} in LUM,
-which will be used only if \code{loss = "lum"}.  The default value is
-\code{1.0}.}
+\item{lum_a}{A positive number greater than one representing the parameter
+\emph{a} in LUM, which will be used only if \code{loss = "lum"}.  The
+default value is \code{1.0}.}
 
 \item{lum_c}{A nonnegative number specifying the parameter \emph{c} in LUM,
 which will be used only if \code{loss = "hinge-boost"} or \code{loss =
-"lum"}.  The default value is \code{0.0}.}
+"lum"}.  The default value is \code{1.0}.}
 
 \item{boost_umin}{A negative number for adjusting the boosting loss for the
-internal majorization procedure.  The default value is \code{-3.0}.}
+internal majorization procedure.}
 
 \item{max_iter}{A positive integer specifying the maximum number of
 iteration.  The default value is \code{10^5}.}
 
-\item{rel_tol}{A positive number specifying the relative tolerance that
-determines convergence.  The default value is \code{1e-4}.}
+\item{epsilon}{A positive number specifying the relative tolerance that
+determines convergence.  The default value is \code{1e-3}.}
 
 \item{standardize}{A logical value indicating if each column of the design
 matrix should be standardized internally to have mean zero and standard
@@ -121,37 +128,41 @@ the elastic-net penalty.
 }
 \examples{
 library(abclass)
+set.seed(123)
 
-## follow example 1 in Zhang and Liu (2014)
+## toy examples for demonstration purpose
+## reference: example 1 in Zhang and Liu (2014)
 ntrain <- 100 # size of training set
-ntest <- 1000 # size of testing set
-p <- 100      # number of predictors
+ntest <- 100  # size of testing set
+p0 <- 5       # number of actual predictors
+p1 <- 5       # number of random predictors
 k <- 5        # number of categories
 
-n <- ntrain + ntest
+n <- ntrain + ntest; p <- p0 + p1
 train_idx <- seq_len(ntrain)
-set.seed(123)
-y <- sample(k, size = n, replace = TRUE)       # response
-mu <- matrix(rnorm(p * k), nrow = k, ncol = p) # mean vector
+y <- sample(k, size = n, replace = TRUE)         # response
+mu <- matrix(rnorm(p0 * k), nrow = k, ncol = p0) # mean vector
 ## normalize the mean vector so that they are distributed on the unit circle
 mu <- mu / apply(mu, 1, function(a) sqrt(sum(a ^ 2)))
-x <- t(sapply(y, function(i) rnorm(p, mean = mu[i, ], sd = 0.25)))
+x0 <- t(sapply(y, function(i) rnorm(p0, mean = mu[i, ], sd = 0.25)))
+x1 <- matrix(rnorm(p1 * n, sd = 0.3), nrow = n, ncol = p1)
+x <- cbind(x0, x1)
 train_x <- x[train_idx, ]
 test_x <- x[- train_idx, ]
 y <- factor(paste0("label_", y))
 train_y <- y[train_idx]
 test_y <- y[- train_idx]
 
-## logistic deviance loss by default
-model1 <- abclass(train_x, train_y, nlambda = 10, nfolds = 3,
-                  lambda_min_ratio = 1e-3, rel_tol = 1e-3)
+## Regularization through ridge penalty
+model1 <- abclass(train_x, train_y, nlambda = 5, nfolds = 3,
+                  loss = "logistic", alpha = 0, lambda_min_ratio = 1e-2)
 pred1 <- predict(model1, test_x)
 table(test_y, pred1)
 mean(test_y == pred1) # accuracy
 
-## exponential loss approximating AdaBoost
-model2 <- abclass(train_x, train_y, nlambda = 10, nfolds = 3,
-                  loss = "boost", rel_tol = 1e-3)
+## groupwise regularization via group lasso
+model2 <- abclass(train_x, train_y, nlambda = 5, nfolds = 3,
+                  grouped = TRUE, loss = "boost")
 pred2 <- predict(model2, test_x)
 table(test_y, pred2)
 mean(test_y == pred2) # accuracy

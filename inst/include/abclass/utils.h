@@ -18,6 +18,7 @@
 #ifndef ABCLASS_UTILS_H
 #define ABCLASS_UTILS_H
 
+#include <cmath>
 #include <vector>
 #include <RcppArmadillo.h>
 
@@ -135,13 +136,29 @@ namespace abclass {
     {
         return arma::accu(arma::abs(x));
     }
+    template <typename T>
+    inline double l2_norm_square(const T& x)
+    {
+        return arma::accu(arma::square(x));
+    }
+    template <typename T>
+    inline double l2_norm(const T& x)
+    {
+        return std::sqrt(l2_norm_square(x));
+    }
 
     // function check convergence
     template <typename T>
     inline double rel_diff(const T& x_old, const T& x_new)
     {
-        T tmp_mat { arma::abs(x_new - x_old) / (1.0 + arma::abs(x_old)) };
-        return tmp_mat.max();
+        T tmp { arma::abs(x_new - x_old) / (1.0 + arma::abs(x_new)) };
+        return tmp.max();
+    }
+    template <typename T>
+    inline double l1_sum_diff(const T& x_old, const T& x_new)
+    {
+        T tmp { arma::abs(x_new - x_old) };
+        return arma::accu(tmp);
     }
 
     // set difference for vector a and vector b

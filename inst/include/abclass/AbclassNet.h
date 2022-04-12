@@ -21,7 +21,6 @@
 #include <utility>
 #include <RcppArmadillo.h>
 #include "Abclass.h"
-#include "CrossValidation.h"
 #include "utils.h"
 
 namespace abclass
@@ -37,8 +36,8 @@ namespace abclass
         arma::rowvec cmd_lowerbound_; // 1 by p1_
 
         // pure virtual functions
-        inline virtual void set_cmd_lowerbound() = 0;
-        inline virtual double objective0(const arma::vec& inner) const = 0;
+        virtual void set_cmd_lowerbound() = 0;
+        virtual double objective0(const arma::vec& inner) const = 0;
 
         // common methods
         inline double regularization(const arma::mat& beta,
@@ -47,11 +46,11 @@ namespace abclass
         {
             if (intercept_) {
                 arma::mat beta0int { beta.tail_rows(p0_) };
-                return l1_lambda * arma::accu(beta0int) +
-                    l2_lambda * arma::accu(arma::square(beta0int));
+                return l1_lambda * l1_norm(beta0int) +
+                    l2_lambda * l2_norm_square(beta0int);
             }
-            return l1_lambda * arma::accu(arma::abs(beta)) +
-                l2_lambda * arma::accu(arma::square(beta));
+            return l1_lambda * l1_norm(beta) +
+                l2_lambda * l2_norm_square(beta);
         }
 
         // objective function with regularization
@@ -68,20 +67,38 @@ namespace abclass
         inline double cmd_gradient(const arma::vec& inner,
                                    const arma::vec& vj_xl) const
         {
-            arma::vec neg_inner_grad { neg_loss_derivative(inner) };
-            return - arma::mean(obs_weight_ % vj_xl % neg_inner_grad);
+            arma::vec inner_grad { loss_derivative(inner) };
+            return arma::mean(obs_weight_ % vj_xl % inner_grad);
         }
 
         // gradient matrix
         inline arma::mat gradient(const arma::vec& inner) const
         {
             arma::mat out { arma::zeros(p1_, km1_) };
-            arma::vec neg_inner_grad { neg_loss_derivative(inner) };
+            arma::vec inner_grad { loss_derivative(inner) };
             for (size_t j {0}; j < km1_; ++j) {
                 const arma::vec w_v_j { obs_weight_ % get_vertex_y(j) };
                 for (size_t l {0}; l < p1_; ++l) {
                     const arma::vec w_vj_xl { w_v_j % x_.col(l) };
-                    out(l, j) = - arma::mean(w_vj_xl % neg_inner_grad);
+                    out(l, j) = arma::mean(w_vj_xl % inner_grad);
+                }
+            }
+            return out;
+        }
+
+        inline double max_diff(const arma::mat& beta_new,
+                               const arma::mat& beta_old) const
+        {
+            double out { 0.0 };
+            for (size_t j {0}; j < km1_; ++j) {
+                for (size_t i {0}; i < p1_; ++i) {
+                    double tmp {
+                        cmd_lowerbound_(i) *
+                        std::pow(beta_new(i, j) - beta_old(i, j), 2)
+                    };
+                    if (out < tmp) {
+                        out = tmp;
+                    }
                 }
             }
             return out;
@@ -104,7 +121,7 @@ namespace abclass
                                          const double l2_lambda,
                                          const bool varying_active_set,
                                          const unsigned int max_iter,
-                                         const double rel_tol,
+                                         const double epsilon,
                                          const unsigned int verbose);
 
         // one full cycle for coordinate-descent
@@ -120,7 +137,7 @@ namespace abclass
                                        const double l1_lambda,
                                        const double l2_lambda,
                                        const unsigned int max_iter,
-                                       const double rel_tol,
+                                       const double epsilon,
                                        const unsigned int verbose);
 
     public:
@@ -144,7 +161,7 @@ namespace abclass
         arma::vec cv_accuracy_sd_;
 
         // control
-        double rel_tol_;          // relative tolerance for convergence check
+        double epsilon_;          // relative tolerance for convergence check
         unsigned int max_iter_;   // maximum number of iterations
         bool varying_active_set_; // if active set should be adaptive
 
@@ -157,7 +174,7 @@ namespace abclass
                         const unsigned int nlambda,
                         const double lambda_min_ratio,
                         const unsigned int max_iter,
-                        const double rel_tol,
+                        const double epsilon,
                         const bool varying_active_set,
                         const unsigned int verbose);
 
@@ -167,7 +184,12 @@ namespace abclass
         {
             return Abclass::predict_prob(x * beta);
         }
-
+        // prediction based on the inner products
+        inline arma::uvec predict_y(const arma::mat& beta,
+                                    const arma::mat& x) const
+        {
+            return Abclass::predict_y(x * beta);
+        }
         // accuracy for tuning
         inline double accuracy(const arma::mat& beta,
                                const arma::mat& x,
@@ -190,13 +212,15 @@ namespace abclass
         )
     {
         double ell_verbose { 0.0 };
-        if (verbose > 1) {
+        if (verbose > 2) {
             Rcpp::Rcout << "\nStarting values of beta:\n";
             Rcpp::Rcout << beta << "\n";
             Rcpp::Rcout << "The active set of beta:\n";
             Rcpp::Rcout << is_active << "\n";
-            ell_verbose = objective(inner, beta, l1_lambda, l2_lambda);
         };
+        if (verbose > 1) {
+            ell_verbose = objective(inner, beta, l1_lambda, l2_lambda);
+        }
         for (size_t j {0}; j < km1_; ++j) {
             arma::vec v_j { get_vertex_y(j) };
             for (size_t l {0}; l < p1_; ++l) {
@@ -255,41 +279,52 @@ namespace abclass
         const double l2_lambda,
         const bool varying_active_set,
         const unsigned int max_iter,
-        const double rel_tol,
+        const double epsilon,
         const unsigned int verbose
         )
     {
         size_t i {0};
         arma::mat beta0 { beta };
-        arma::umat is_active_stored { is_active };
         // use active-set if p > n ("helps when p >> n")
         if (varying_active_set) {
+            arma::umat is_active_strong { is_active },
+                is_active_varying { is_active };
             while (i < max_iter) {
-                arma::umat is_active_new { is_active };
                 // cycles over the active set
                 size_t ii {0};
                 while (ii < max_iter) {
-                    run_one_active_cycle(beta, inner, is_active_new,
+                    run_one_active_cycle(beta, inner, is_active_varying,
                                          l1_lambda, l2_lambda, true, verbose);
-                    if (rel_diff(beta0, beta) < rel_tol) {
+                    if (rel_diff(beta0, beta) < epsilon) {
                         num_iter_ = ii + 1;
                         break;
                     }
                     beta0 = beta;
                     ii++;
                 }
+                if (verbose > 1) {
+                    Rcpp::Rcout << "The size of active set from strong rule: "
+                                << l1_norm(is_active_strong)
+                                << "\n";
+                }
                 // run a full cycle over the converged beta
-                run_one_active_cycle(beta, inner, is_active_stored,
+                run_one_active_cycle(beta, inner, is_active,
                                      l1_lambda, l2_lambda, true, verbose);
                 // check two active sets coincide
-                if (is_gt(l1_norm(is_active_new - is_active_stored), 0)) {
+                if (l1_norm(is_active_varying - is_active) > 0) {
                     // if different, repeat this process
                     if (verbose > 1) {
-                        Rcpp::Rcout << "Enlarged the active set after "
+                        Rcpp::Rcout << "Changed the active set from "
+                                    << l1_norm(is_active_varying)
+                                    << " to "
+                                    << l1_norm(is_active)
+                                    << " after "
                                     << num_iter_ + 1
                                     << " iteration(s)\n";
                     }
-                    is_active_stored = is_active;
+                    is_active_varying = is_active;
+                    // recover the active set
+                    is_active = is_active_strong;
                     i++;
                 } else {
                     if (verbose > 1) {
@@ -304,9 +339,9 @@ namespace abclass
         } else {
             // regular coordinate descent
             while (i < max_iter) {
-                run_one_active_cycle(beta, inner, is_active_stored,
+                run_one_active_cycle(beta, inner, is_active,
                                      l1_lambda, l2_lambda, false, verbose);
-                if (rel_diff(beta0, beta) < rel_tol) {
+                if (rel_diff(beta0, beta) < epsilon) {
                     num_iter_ = i + 1;
                     break;
                 }
@@ -335,11 +370,13 @@ namespace abclass
         )
     {
         double ell_verbose { 0.0 };
-        if (verbose > 1) {
+        if (verbose > 2) {
             Rcpp::Rcout << "\nStarting values of beta:\n";
             Rcpp::Rcout << beta << "\n";
-            ell_verbose = objective(inner, beta, l1_lambda, l2_lambda);
         };
+        if (verbose > 1) {
+            ell_verbose = objective(inner, beta, l1_lambda, l2_lambda);
+        }
         for (size_t j {0}; j < km1_; ++j) {
             arma::vec v_j { get_vertex_y(j) };
             for (size_t l {0}; l < p1_; ++l) {
@@ -386,14 +423,14 @@ namespace abclass
         const double l1_lambda,
         const double l2_lambda,
         const unsigned int max_iter,
-        const double rel_tol,
+        const double epsilon,
         const unsigned int verbose
         )
     {
         arma::mat beta0 { beta };
         for (size_t i {0}; i < max_iter; ++i) {
             run_one_full_cycle(beta, inner, l1_lambda, l2_lambda, verbose);
-            if (rel_diff(beta0, beta) < rel_tol) {
+            if (rel_diff(beta0, beta) < epsilon) {
                 num_iter_ = i + 1;
                 break;
             }
@@ -418,7 +455,7 @@ namespace abclass
         const unsigned int nlambda,
         const double lambda_min_ratio,
         const unsigned int max_iter,
-        const double rel_tol,
+        const double epsilon,
         const bool varying_active_set,
         const unsigned int verbose
         )
@@ -431,7 +468,7 @@ namespace abclass
         }
         alpha_ = alpha;
         // record control
-        rel_tol_ = rel_tol;
+        epsilon_ = epsilon;
         max_iter_ = max_iter;
         varying_active_set_ = varying_active_set;
         // initialize
@@ -470,7 +507,7 @@ namespace abclass
             for (size_t li { 0 }; li < lambda_.n_elem; ++li) {
                 run_cmd_full_cycle(one_beta, one_inner,
                                    0.0, 0.5 * lambda_(li),
-                                   max_iter, rel_tol, verbose);
+                                   max_iter, epsilon, verbose);
                 coef_.slice(li) = rescale_coef(one_beta);
             }
             return;             // early exit
@@ -485,7 +522,7 @@ namespace abclass
             is_active_strong.row(0) = arma::ones<arma::umat>(1, km1_);
             run_cmd_active_cycle(one_beta, one_inner, is_active_strong,
                                  l1_lambda_max_, l2_lambda,
-                                 false, max_iter, rel_tol, verbose);
+                                 false, max_iter, epsilon, verbose);
         }
         // optim with varying active set when p > n
         double old_l1_lambda { l1_lambda_max_ }; // for strong rule
@@ -509,50 +546,54 @@ namespace abclass
                     if (one_grad_beta(l, j) >= one_strong_rhs) {
                         is_active_strong(l, j) = 1;
                     } else {
+                        is_active_strong(l, j) = 0;
                         one_beta(l, j) = 0;
                     }
                 }
             }
-            arma::umat is_active_strong_new { is_active_strong };
             bool kkt_failed { true };
             one_strong_rhs = l1_lambda;
             // eventually, strong rule will guess correctly
             while (kkt_failed) {
+                arma::umat is_active_strong_old { is_active_strong };
+                arma::umat is_strong_rule_failed {
+                    arma::zeros<arma::umat>(arma::size(is_active_strong))
+                };
                 // update beta
                 run_cmd_active_cycle(one_beta, one_inner, is_active_strong,
                                      l1_lambda, l2_lambda, varying_active_set,
-                                     max_iter, rel_tol, verbose);
+                                     max_iter, epsilon, verbose);
                 if (verbose > 0) {
-                    msg("\nChecking the KKT condition for the null set.");
+                    msg("Checking the KKT condition for the null set.");
                 }
                 // check kkt condition
                 for (size_t j { 0 }; j < km1_; ++j) {
                     arma::vec v_j { get_vertex_y(j) };
                     for (size_t l { int_intercept_ }; l < p1_; ++l) {
-                        if (is_active_strong(l, j) > 0) {
+                        if (is_active_strong_old(l, j) > 0) {
                             continue;
                         }
                         arma::vec vj_xl { v_j % x_.col(l) };
                         if (std::abs(cmd_gradient(one_inner, vj_xl)) >
                             one_strong_rhs) {
                             // update active set
-                            is_active_strong_new(l, j) = 1;
+                            is_strong_rule_failed(l, j) = 1;
                         }
                     }
                 }
-                if (is_gt(l1_norm(is_active_strong -
-                                  is_active_strong_new), 0)) {
+                if (arma::accu(is_strong_rule_failed) > 0) {
+                    is_active_strong = is_active_strong_old +
+                        is_strong_rule_failed;
                     if (verbose > 0) {
-                        Rcpp::Rcout << "\nThe strong rule failed."
-                                    << "\nOld active set:\n";
-                        Rcpp::Rcout << is_active_strong << "\n";
-                        Rcpp::Rcout << "\nNew active set:\n";
-                        Rcpp::Rcout << is_active_strong_new << "\n";
+                        Rcpp::Rcout << "The strong rule failed.\n"
+                                    << "The size of old active set: ";
+                        Rcpp::Rcout << l1_norm(is_active_strong_old) << "\n";
+                        Rcpp::Rcout << "The size of new active set: ";
+                        Rcpp::Rcout << l1_norm(is_active_strong) << "\n";
                     }
-                    is_active_strong = is_active_strong_new;
                 } else {
                     if (verbose > 0) {
-                        Rcpp::Rcout << "\nThe strong rule worked.\n";
+                        msg("The strong rule worked.\n");
                     }
                     kkt_failed = false;
                 }

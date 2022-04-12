@@ -18,18 +18,32 @@
 #ifndef ABCLASS_H
 #define ABCLASS_H
 
+// base class
 #include "abclass/Abclass.h"
 
+// with elastic-net
 #include "abclass/AbclassNet.h"
 #include "abclass/LogisticNet.h"
 #include "abclass/BoostNet.h"
 #include "abclass/HingeBoostNet.h"
 #include "abclass/LumNet.h"
 
-#include "abclass/CrossValidation.h"
+// with group lasso
+#include "abclass/AbclassGroupLasso.h"
+#include "abclass/LogisticGLasso.h"
+#include "abclass/BoostGLasso.h"
+#include "abclass/HingeBoostGLasso.h"
+#include "abclass/LumGLasso.h"
+
+// simplex class
 #include "abclass/Simplex.h"
 
+// utils
 #include "abclass/utils.h"
+
+// for cross-validation
+#include "abclass/CrossValidation.h"
 #include "abclass/abclass_net_cv.h"
+#include "abclass/abclass_glasso_cv.h"
 
 #endif
