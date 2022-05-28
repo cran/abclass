@@ -15,8 +15,8 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 //
 
-#ifndef ABCLASS_ABCLASS_GROUP_LASSO_H
-#define ABCLASS_ABCLASS_GROUP_LASSO_H
+#ifndef ABCLASS_ABCLASS_GROUP_MCP_H
+#define ABCLASS_ABCLASS_GROUP_MCP_H
 
 #include <RcppArmadillo.h>
 #include "Abclass.h"
@@ -24,20 +24,39 @@
 
 namespace abclass
 {
-    class AbclassGroupLasso : public Abclass
+    class AbclassGroupMCP : public Abclass
     {
     protected:
         // for groupwise majorization descent
         arma::rowvec gmd_lowerbound_; // 1 by p1_
+        double max_mg_;               // arma::max(gmd_lowerbound_)
 
         // pure virtual functions
         virtual void set_gmd_lowerbound() = 0;
         virtual double objective0(const arma::vec& inner) const = 0;
 
         // common methods
+        inline double mcp_group_penalty(const arma::rowvec& beta,
+                                        const double lambda,
+                                        const double gamma) const
+        {
+            double l2_beta { l2_norm(beta) };
+            return mcp_penalty(l2_beta, lambda, gamma);
+        }
+        inline double mcp_penalty(const double theta,
+                                  const double lambda,
+                                  const double gamma) const
+        {
+            if (theta < gamma * lambda) {
+                return theta * (lambda - 0.5 * theta / gamma);
+            }
+            return 0.5 * gamma * lambda * lambda;
+        }
+
         inline double regularization(
             const arma::mat& beta,
             const double lambda,
+            const double gamma,
             const arma::vec& group_weight
             ) const
         {
@@ -46,9 +65,12 @@ namespace abclass
             arma::uvec::iterator it { idx.begin() };
             arma::uvec::iterator it_end { idx.end() };
             for (; it != it_end; ++it) {
-                out += group_weight(*it) * l2_norm(beta.row(*it));
+                out += mcp_group_penalty(
+                    beta.row(*it),
+                    lambda * group_weight(*it),
+                    gamma);
             }
-            return lambda * out;
+            return out;
         }
 
         // objective function with regularization
@@ -56,11 +78,12 @@ namespace abclass
             const arma::vec& inner,
             const arma::mat& beta,
             const double lambda,
+            const double gamma,
             const arma::vec& group_weight
             ) const
         {
             return objective0(inner) +
-                regularization(beta, lambda, group_weight);
+                regularization(beta, lambda, gamma, group_weight);
         }
 
         // define gradient function for j-th predictor
@@ -92,29 +115,12 @@ namespace abclass
             return out / dn_obs_;
         }
 
-        inline double max_diff(const arma::mat& beta_new,
-                               const arma::mat& beta_old) const
-        {
-            double out { 0.0 };
-            for (size_t j {0}; j < km1_; ++j) {
-                for (size_t i {0}; i < p1_; ++i) {
-                    double tmp {
-                        gmd_lowerbound_(i) *
-                        std::pow(beta_new(i, j) - beta_old(i, j), 2)
-                    };
-                    if (out < tmp) {
-                        out = tmp;
-                    }
-                }
-            }
-            return out;
-        }
-
         // run one cycle of coordinate descent over a given active set
         inline void run_one_active_cycle(arma::mat& beta,
                                          arma::vec& inner,
                                          arma::uvec& is_active,
                                          const double lambda,
+                                         const double gamma,
                                          const bool update_active,
                                          const unsigned int verbose);
 
@@ -123,13 +129,13 @@ namespace abclass
                                          arma::vec& inner,
                                          arma::uvec& is_active,
                                          const double lambda,
+                                         const double gamma,
                                          const bool varying_active_set,
                                          const unsigned int max_iter,
                                          const double epsilon,
                                          const unsigned int verbose);
 
     public:
-
         // inherit constructors
         using Abclass::Abclass;
 
@@ -137,6 +143,7 @@ namespace abclass
         // the "big" enough lambda => zero coef unless alpha = 0
         double lambda_max_;
         arma::vec lambda_;        // lambda sequence
+        double gamma_;            // the gamma parameter > 1
         arma::vec group_weight_;  // adaptive weights for each group
         // did user specified a customized lambda sequence?
         bool custom_lambda_ = false;
@@ -163,6 +170,7 @@ namespace abclass
                         const unsigned int nlambda,
                         const double lambda_min_ratio,
                         const arma::vec& group_weight,
+                        const double dgamma,
                         const unsigned int max_iter,
                         const double epsilon,
                         const bool varying_active_set,
@@ -222,29 +230,38 @@ namespace abclass
             group_weight_ = gen_group_weight(group_weight);
         }
 
+        inline void set_gamma(const double dgamma = 0.01)
+        {
+            if (dgamma > 0.0) {
+                gamma_ = dgamma + 1.0 / max_mg_;
+                return;
+            }
+            throw std::range_error("The 'dgamma' must be positive.");
+        }
+
     };
 
     // run one GMD cycle over active sets
-    inline void AbclassGroupLasso::run_one_active_cycle(
+    inline void AbclassGroupMCP::run_one_active_cycle(
         arma::mat& beta,
         arma::vec& inner,
         arma::uvec& is_active,
         const double lambda,
+        const double gamma,
         const bool update_active,
         const unsigned int verbose
         )
     {
         double ell_verbose { 0.0 }, obj_verbose { 0.0 }, reg_verbose { 0.0 };
         if (verbose > 2) {
-            Rcpp::Rcout << "\nStarting values of beta:\n"
-                        << beta << "\n"
-                        << "\nThe active set of beta:\n"
-                        << arma2rvec(is_active)
-                        << "\n";
+            Rcpp::Rcout << "\nStarting values of beta:\n";
+            Rcpp::Rcout << beta << "\n";
+            Rcpp::Rcout << "The active set of beta:\n";
+            Rcpp::Rcout << arma2rvec(is_active) << "\n";
         };
         if (verbose > 1) {
             obj_verbose = objective0(inner);
-            reg_verbose = regularization(beta, lambda, group_weight_);
+            reg_verbose = regularization(beta, lambda, gamma, group_weight_);
             ell_verbose = obj_verbose + reg_verbose;
         }
         for (size_t j {0}; j < p1_; ++j) {
@@ -252,17 +269,22 @@ namespace abclass
                 continue;
             }
             arma::rowvec old_beta_j { beta.row(j) };
-            double mj { gmd_lowerbound_(j) };
-            arma::rowvec uj {
-                - gmd_gradient(inner, j) + mj * beta.row(j)
+            double mj { gmd_lowerbound_(j) }; // m_g
+            arma::rowvec zj {
+                - gmd_gradient(inner, j) / mj + beta.row(j)
             };
             double lambda_j { lambda * group_weight_(j) };
-            double pos_part { 1 - lambda_j / l2_norm(uj) };
+            double zj2 { l2_norm(zj) };
             // update beta
-            if (pos_part <= 0.0) {
-                beta.row(j) = arma::zeros<arma::rowvec>(km1_);
+            if (zj2 > gamma * lambda_j) {
+                beta.row(j) = zj;
             } else {
-                beta.row(j) = uj * pos_part / mj;
+                double tmp { 1 - lambda_j / mj / zj2 };
+                if (tmp <= 0.0) {
+                    beta.row(j) = arma::zeros<arma::rowvec>(km1_);
+                } else {
+                    beta.row(j) = gamma * mj / (gamma * mj - 1) * tmp * zj;
+                }
             }
             for (size_t i {0}; i < n_obs_; ++i) {
                 inner(i) += x_(i, j) *
@@ -283,7 +305,7 @@ namespace abclass
             Rprintf("  from %7.7f (obj. %7.7f + reg. %7.7f)\n",
                     ell_verbose, obj_verbose, reg_verbose);
             obj_verbose = objective0(inner);
-            reg_verbose = regularization(beta, lambda, group_weight_);
+            reg_verbose = regularization(beta, lambda, gamma, group_weight_);
             ell_verbose = obj_verbose + reg_verbose;
             Rprintf("    to %7.7f (obj. %7.7f + reg. %7.7f)\n",
                     ell_verbose, obj_verbose, reg_verbose);
@@ -295,11 +317,12 @@ namespace abclass
     }
 
     // run CMD cycles over active sets
-    inline void AbclassGroupLasso::run_gmd_active_cycle(
+    inline void AbclassGroupMCP::run_gmd_active_cycle(
         arma::mat& beta,
         arma::vec& inner,
         arma::uvec& is_active,
         const double lambda,
+        const double gamma,
         const bool varying_active_set,
         const unsigned int max_iter,
         const double epsilon,
@@ -322,7 +345,7 @@ namespace abclass
                 size_t ii {0};
                 while (ii < max_iter) {
                     run_one_active_cycle(beta, inner, is_active_varying,
-                                         lambda, true, verbose);
+                                         lambda, gamma, true, verbose);
                     if (rel_diff(beta0, beta) < epsilon) {
                         num_iter_ = ii + 1;
                         break;
@@ -332,9 +355,9 @@ namespace abclass
                 }
                 // run a full cycle over the converged beta
                 run_one_active_cycle(beta, inner, is_active,
-                                     lambda, true, verbose);
+                                     lambda, gamma, true, verbose);
                 // check two active sets coincide
-                if (l1_norm(is_active_varying - is_active) > 0) {
+                if (is_gt(l1_norm(is_active_varying - is_active), 0)) {
                     // if different, repeat this process
                     if (verbose > 1) {
                         Rcpp::Rcout << "Changed the active set from "
@@ -365,7 +388,7 @@ namespace abclass
             // regular coordinate descent
             while (i < max_iter) {
                 run_one_active_cycle(beta, inner, is_active,
-                                     lambda, false, verbose);
+                                     lambda, gamma, false, verbose);
                 if (rel_diff(beta0, beta) < epsilon) {
                     num_iter_ = i + 1;
                     break;
@@ -386,12 +409,13 @@ namespace abclass
     }
 
     // for a sequence of lambda's
-    // lambda * group_weight_j * l2_norm(beta_j)
-    inline void AbclassGroupLasso::fit(
+    // MCP_group_penalty(l2_norm(beta_j), group_weight_j * lambda, gamma)
+    inline void AbclassGroupMCP::fit(
         const arma::vec& lambda,
         const unsigned int nlambda,
         const double lambda_min_ratio,
         const arma::vec& group_weight,
+        const double dgamma,
         const unsigned int max_iter,
         const double epsilon,
         const bool varying_active_set,
@@ -402,6 +426,8 @@ namespace abclass
         set_gmd_lowerbound();
         // set group weight
         set_group_weight(group_weight);
+        // set gamma
+        set_gamma(dgamma);
         arma::uvec penalty_group { arma::find(group_weight_ > 0.0) };
         arma::uvec penalty_free { arma::find(group_weight_ == 0.0) };
         // record control
@@ -449,7 +475,7 @@ namespace abclass
             is_active_strong(*it) = 1;
         }
         run_gmd_active_cycle(one_beta, one_inner, is_active_strong,
-                             lambda_max_, false,
+                             lambda_max_, gamma_, false,
                              max_iter, epsilon, verbose);
         // optim with varying active set when p > n
         double old_lambda { lambda_max_ }; // for strong rule
@@ -471,7 +497,8 @@ namespace abclass
                 }
                 double one_strong_lhs { l2_norm(one_grad_beta.row(*it)) };
                 one_strong_rhs = group_weight_(*it) *
-                    (2 * lambda_li - old_lambda);
+                    (gamma_ / (gamma_ - 1) * (lambda_li - old_lambda) +
+                        lambda_li);
                 if (one_strong_lhs >= one_strong_rhs) {
                     is_active_strong(*it) = 1;
                 }
@@ -487,7 +514,7 @@ namespace abclass
                 };
                 // update beta
                 run_gmd_active_cycle(one_beta, one_inner, is_active_strong,
-                                     lambda_li, varying_active_set,
+                                     lambda_li, gamma_, varying_active_set,
                                      max_iter, epsilon, verbose);
                 if (verbose > 0) {
                     msg("Checking the KKT condition for the null set.");
@@ -527,7 +554,7 @@ namespace abclass
         }
     }
 
-}
+}  // abclass
 
 
-#endif /* ABCLASS_ABCLASS_GROUP_LASSO_H */
+#endif /* ABCLASS_ABCLASS_GROUP_MCP_H */

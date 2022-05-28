@@ -15,25 +15,27 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 //
 
-#ifndef ABCLASS_LUM_GLASSO_H
-#define ABCLASS_LUM_GLASSO_H
+#ifndef ABCLASS_LUM_GROUP_SCAD_H
+#define ABCLASS_LUM_GROUP_SCAD_H
 
 #include <RcppArmadillo.h>
-#include "AbclassGroupLasso.h"
+#include "AbclassGroupSCAD.h"
 #include "utils.h"
 
 namespace abclass
 {
     // define class for inputs and outputs
-    class LumGLasso : public AbclassGroupLasso
+    class LumGroupSCAD : public AbclassGroupSCAD
     {
     private:
         // cache
-        double lum_cp1_;        // c + 1
-        double lum_c_cp1_;      // c / (c + 1)
-        double lum_cma_;        // c - a
         double lum_ap1_;        // a + 1
-        double lum_a_ap1_;       // a ^ (a + 1)
+        double lum_log_a_;      // log(a)
+        double lum_a_log_a_;    // a log(a)
+        double lum_cp1_;        // c + 1
+        double lum_log_cp1_;    // log(c + 1)
+        double lum_c_cp1_;      // c / (c + 1)
+        double lum_amc_;        // a - c
 
     protected:
 
@@ -47,6 +49,7 @@ namespace abclass
             arma::mat sqx { arma::square(x_) };
             sqx.each_col() %= obs_weight_;
             gmd_lowerbound_ = tmp * arma::sum(sqx, 0) / dn_obs_;
+            max_mg_ = gmd_lowerbound_.max();
         }
 
         // objective function without regularization
@@ -57,8 +60,10 @@ namespace abclass
                 if (inner[i] < lum_c_cp1_) {
                     tmp[i] = 1.0 - inner[i];
                 } else {
-                    tmp[i] = std::pow(lum_a_ / (lum_cp1_ * inner[i] - lum_cma_),
-                                      lum_a_) / lum_cp1_;
+                    tmp[i] = std::exp(
+                        - lum_log_cp1_ + lum_a_log_a_ -
+                        lum_a_ * std::log(lum_cp1_ * inner[i] + lum_amc_)
+                        );
                 }
             }
             return arma::mean(obs_weight_ % tmp);
@@ -70,8 +75,10 @@ namespace abclass
             arma::vec out { - arma::ones(u.n_elem) };
             for (size_t i {0}; i < u.n_elem; ++i) {
                 if (u[i] > lum_c_cp1_) {
-                    out[i] = - lum_a_ap1_ /
-                        std::pow(lum_cp1_ * u[i] - lum_cma_, lum_ap1_);
+                    out[i] = - std::exp(
+                        lum_a_log_a_ + lum_log_a_ -
+                        lum_ap1_ * std::log(lum_cp1_ * u[i] + lum_amc_)
+                        );
                 }
             }
             return out;
@@ -80,38 +87,38 @@ namespace abclass
     public:
 
         // inherit constructors
-        using AbclassGroupLasso::AbclassGroupLasso;
+        using AbclassGroupSCAD::AbclassGroupSCAD;
 
         //! @param x The design matrix without an intercept term.
         //! @param y The category index vector.
-        LumGLasso(const arma::mat& x,
-                  const arma::uvec& y,
-                  const double lum_a = 1.0,
-                  const double lum_c = 0.0,
-                  const bool intercept = true,
-                  const bool standardize = true,
-                  const arma::vec& weight = arma::vec()) :
-            AbclassGroupLasso(x, y, intercept, standardize, weight)
+        LumGroupSCAD(const arma::mat& x,
+                     const arma::uvec& y,
+                     const bool intercept = true,
+                     const bool standardize = true,
+                     const arma::vec& weight = arma::vec()) :
+            AbclassGroupSCAD(x, y, intercept, standardize, weight)
         {
-            set_lum_parameters(lum_a, lum_c);
+            set_lum_parameters(1.0, 0.0);
         }
 
-        LumGLasso* set_lum_parameters(const double lum_a,
-                                      const double lum_c)
+        LumGroupSCAD* set_lum_parameters(const double lum_a,
+                                         const double lum_c)
         {
             if (is_le(lum_a, 0.0)) {
                 throw std::range_error("The LUM 'a' must be positive.");
             }
             lum_a_ = lum_a;
             lum_ap1_ = lum_a_ + 1.0;
-            lum_a_ap1_ = std::pow(lum_a_, lum_ap1_);
+            lum_log_a_ = std::log(lum_a_);
+            lum_a_log_a_ = lum_a_ * lum_log_a_;
             if (is_lt(lum_c, 0.0)) {
                 throw std::range_error("The LUM 'c' cannot be negative.");
             }
             lum_c_ = lum_c;
             lum_cp1_ = lum_c + 1.0;
+            lum_log_cp1_ = std::log(lum_cp1_);
             lum_c_cp1_ = lum_c_ / lum_cp1_;
-            lum_cma_ = lum_c_ - lum_a_;
+            lum_amc_ = lum_a_ - lum_c_;
             return this;
         }
 

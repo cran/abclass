@@ -15,25 +15,26 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 //
 
-#ifndef ABCLASS_LOGISTIC_NET_H
-#define ABCLASS_LOGISTIC_NET_H
+#ifndef ABCLASS_LOGISTIC_GROUP_MCP_H
+#define ABCLASS_LOGISTIC_GROUP_MCP_H
 
 #include <RcppArmadillo.h>
-#include "AbclassNet.h"
+#include "AbclassGroupMCP.h"
 
 namespace abclass
 {
     // define class for inputs and outputs
-    class LogisticNet : public AbclassNet
+    class LogisticGroupMCP : public AbclassGroupMCP
     {
     protected:
 
-        // set CMD lowerbound
-        inline void set_cmd_lowerbound() override
+        // set GMD lowerbound
+        inline void set_gmd_lowerbound() override
         {
             arma::mat sqx { arma::square(x_) };
             sqx.each_col() %= obs_weight_;
-            cmd_lowerbound_ = arma::sum(sqx, 0) / (4.0 * dn_obs_);
+            gmd_lowerbound_ = arma::sum(sqx, 0) / (4.0 * dn_obs_);
+            max_mg_ = gmd_lowerbound_.max();
         }
 
         // objective function without regularization
@@ -57,16 +58,16 @@ namespace abclass
     public:
 
         // inherit constructors
-        using AbclassNet::AbclassNet;
+        using AbclassGroupMCP::AbclassGroupMCP;
 
         //! @param x The design matrix without an intercept term.
         //! @param y The category index vector.
-        LogisticNet(const arma::mat& x,
-                    const arma::uvec& y,
-                    const bool intercept = true,
-                    const bool standardize = true,
-                    const arma::vec& weight = arma::vec()) :
-            AbclassNet(x, y, intercept, standardize, weight)
+        LogisticGroupMCP(const arma::mat& x,
+                         const arma::uvec& y,
+                         const bool intercept = true,
+                         const bool standardize = true,
+                         const arma::vec& weight = arma::vec()) :
+            AbclassGroupMCP(x, y, intercept, standardize, weight)
         {
         }
 

@@ -2,6 +2,7 @@
 % Please edit documentation in R/abclass.R
 \name{abclass}
 \alias{abclass}
+\alias{abclass.control}
 \title{Angle-Based Classification}
 \usage{
 abclass(
@@ -10,18 +11,26 @@ abclass(
   intercept = TRUE,
   weight = NULL,
   loss = c("logistic", "boost", "hinge-boost", "lum"),
+  control = list(),
+  ...
+)
+
+abclass.control(
   lambda = NULL,
   alpha = 0.5,
   nlambda = 50,
   lambda_min_ratio = NULL,
-  grouped = FALSE,
+  grouped = TRUE,
   group_weight = NULL,
+  group_penalty = c("lasso", "scad", "mcp"),
+  dgamma = 1,
   nfolds = 0,
   stratified_cv = TRUE,
+  alignment = c("fraction", "lambda"),
   lum_a = 1,
   lum_c = 1,
   boost_umin = -5,
-  max_iter = 1e+05,
+  maxit = 1e+05,
   epsilon = 0.001,
   standardize = TRUE,
   varying_active_set = TRUE,
@@ -53,6 +62,11 @@ options are \code{"logistic"} for the logistic deviance loss,
 \code{"lum"} for largin-margin unified machines (LUM).  See Liu, et
 al. (2011) for details.}
 
+\item{control}{A list of control parameters. See \code{abclass.control()}
+for details.}
+
+\item{...}{Other control parameters passed to \code{abclass.control}.}
+
 \item{lambda}{A numeric vector specifying the tuning parameter \emph{lambda}
 of elastic-net penalty.  A data-driven \emph{lambda} sequence will be
 generated and used according to specified \code{alpha}, \code{nlambda}
@@ -77,6 +91,12 @@ of predictors, and \code{1e-2} otherwise.}
 \item{group_weight}{A numerical vector with nonnegative values representing
 the adaptive penalty factors for grouped lasso.}
 
+\item{group_penalty}{A character vector specifying the name of the group
+penalty.}
+
+\item{dgamma}{A positive number specifying the increment to the minimal
+gamma parameter for group SCAD or group MCP.}
+
 \item{nfolds}{A nonnegative integer specifying the number of folds for
 cross-validation.  The default value is \code{0} and no cross-validation
 will be performed if \code{nfolds < 2}.}
@@ -84,6 +104,14 @@ will be performed if \code{nfolds < 2}.}
 \item{stratified_cv}{A logical value indicating if the cross-validation
 procedure should be stratified by the response label. The default value
 is \code{TRUE}.}
+
+\item{alignment}{A character vector specifying how to align the lambda
+sequence used in the main fit with the cross-validation fits.  The
+available options are \code{"fraction"} for allowing cross-validation
+fits to have their own lambda sequences and \code{"lambda"} for using
+the same lambda sequence of the main fit.  The option \code{"lambda"}
+will be applied if a meaningful \code{lambda} is specified.  The default
+value is \code{"fraction"}.}
 
 \item{lum_a}{A positive number greater than one representing the parameter
 \emph{a} in LUM, which will be used only if \code{loss = "lum"}.  The
@@ -96,7 +124,7 @@ which will be used only if \code{loss = "hinge-boost"} or \code{loss =
 \item{boost_umin}{A negative number for adjusting the boosting loss for the
 internal majorization procedure.}
 
-\item{max_iter}{A positive integer specifying the maximum number of
+\item{maxit}{A positive integer specifying the maximum number of
 iteration.  The default value is \code{10^5}.}
 
 \item{epsilon}{A positive number specifying the relative tolerance that
@@ -116,11 +144,12 @@ estimation procedure.}
 \item{verbose}{A nonnegative integer specifying if the estimation procedure
 should print out intermediate steps/results.  The default value is
 \code{0} for silent estimation procedure.}
-
-\item{...}{Other arguments not used now.}
 }
 \value{
-An object of class {abclass}.
+The function \code{abclass()} returns an object of class
+    \code{abclass} representing a trained classifier; The function
+    \code{abclass.control()} returns an object of class {abclass.control}
+    representing a list of control parameters.
 }
 \description{
 Multi-category angle-based large-margin classifiers with regularization by

@@ -15,17 +15,17 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 //
 
-#ifndef ABCLASS_HINGE_BOOST_NET_H
-#define ABCLASS_HINGE_BOOST_NET_H
+#ifndef ABCLASS_HINGE_BOOST_GROUP_SCAD_H
+#define ABCLASS_HINGE_BOOST_GROUP_SCAD_H
 
 #include <RcppArmadillo.h>
-#include "AbclassNet.h"
+#include "AbclassGroupSCAD.h"
 #include "utils.h"
 
 namespace abclass
 {
     // define class for inputs and outputs
-    class HingeBoostNet : public AbclassNet
+    class HingeBoostGroupSCAD : public AbclassGroupSCAD
     {
     private:
         // cache
@@ -37,11 +37,12 @@ namespace abclass
         double lum_c_ = 0.0;
 
         // set CMD lowerbound
-        inline void set_cmd_lowerbound() override
+        inline void set_gmd_lowerbound() override
         {
             arma::mat sqx { arma::square(x_) };
             sqx.each_col() %= obs_weight_;
-            cmd_lowerbound_ = lum_cp1_ * arma::sum(sqx, 0) / dn_obs_;
+            gmd_lowerbound_ = lum_cp1_ * arma::sum(sqx, 0) / dn_obs_;
+            max_mg_ = gmd_lowerbound_.max();
         }
 
         // objective function without regularization
@@ -73,22 +74,22 @@ namespace abclass
 
     public:
 
-        // inherit default constructors
-        using AbclassNet::AbclassNet;
+        // inherit constructors
+        using AbclassGroupSCAD::AbclassGroupSCAD;
 
         //! @param x The design matrix without an intercept term.
         //! @param y The category index vector.
-        HingeBoostNet(const arma::mat& x,
-                      const arma::uvec& y,
-                      const bool intercept = true,
-                      const bool standardize = true,
-                      const arma::vec& weight = arma::vec()) :
-            AbclassNet(x, y, intercept, standardize, weight)
+        HingeBoostGroupSCAD(const arma::mat& x,
+                            const arma::uvec& y,
+                            const bool intercept = true,
+                            const bool standardize = true,
+                            const arma::vec& weight = arma::vec()) :
+            AbclassGroupSCAD(x, y, intercept, standardize, weight)
         {
             set_lum_c(0.0);
         }
 
-        HingeBoostNet* set_lum_c(const double lum_c)
+        HingeBoostGroupSCAD* set_lum_c(const double lum_c)
         {
             if (is_lt(lum_c, 0.0)) {
                 throw std::range_error("The LUM 'C' cannot be negative.");

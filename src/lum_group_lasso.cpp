@@ -20,13 +20,13 @@
 #include "export-helpers.h"
 
 // [[Rcpp::export]]
-Rcpp::List rcpp_logistic_net(
+Rcpp::List rcpp_lum_group_lasso(
     const arma::mat& x,
     const arma::uvec& y,
     const arma::vec& lambda,
-    const double alpha,
     const unsigned int nlambda,
     const double lambda_min_ratio,
+    const arma::vec& group_weight,
     const arma::vec& weight,
     const bool intercept = true,
     const bool standardize = true,
@@ -36,14 +36,26 @@ Rcpp::List rcpp_logistic_net(
     const unsigned int maxit = 1e5,
     const double epsilon = 1e-3,
     const bool varying_active_set = true,
+    const double lum_a = 1.0,
+    const double lum_c = 0.0,
     const unsigned int verbose = 0
     )
 {
-    abclass::LogisticNet object {
+    abclass::LumGroupLasso object {
         x, y, intercept, standardize, weight
     };
-    return abclass_net_fit(object, y,
-                           lambda, alpha, nlambda, lambda_min_ratio,
-                           nfolds, stratified_cv, alignment,
-                           maxit, epsilon, varying_active_set, verbose);
+    object.set_lum_parameters(lum_a, lum_c);
+    return abclass_group_lasso_fit(object,
+                                   y,
+                                   lambda,
+                                   nlambda,
+                                   lambda_min_ratio,
+                                   group_weight,
+                                   nfolds,
+                                   stratified_cv,
+                                   alignment,
+                                   maxit,
+                                   epsilon,
+                                   varying_active_set,
+                                   verbose);
 }

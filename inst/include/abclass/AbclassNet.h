@@ -151,6 +151,9 @@ namespace abclass
         double lambda_max_;
         double alpha_;            // [0, 1]
         arma::vec lambda_;        // lambda sequence
+        // did user specified a customized lambda sequence?
+        bool custom_lambda_ = false;
+        double lambda_min_ratio_ = 0.01;
 
         // estimates
         arma::cube coef_;         // p1_ by km1_
@@ -289,6 +292,11 @@ namespace abclass
         if (varying_active_set) {
             arma::umat is_active_strong { is_active },
                 is_active_varying { is_active };
+            if (verbose > 1) {
+                Rcpp::Rcout << "The size of active set from strong rule: "
+                            << l1_norm(is_active_strong)
+                            << "\n";
+            }
             while (i < max_iter) {
                 // cycles over the active set
                 size_t ii {0};
@@ -301,11 +309,6 @@ namespace abclass
                     }
                     beta0 = beta;
                     ii++;
-                }
-                if (verbose > 1) {
-                    Rcpp::Rcout << "The size of active set from strong rule: "
-                                << l1_norm(is_active_strong)
-                                << "\n";
                 }
                 // run a full cycle over the converged beta
                 run_one_active_cycle(beta, inner, is_active,
@@ -480,6 +483,7 @@ namespace abclass
         // if alpha = 0 and lambda is specified
         if (is_ridge_only && ! lambda.empty()) {
             lambda_ = arma::reverse(arma::unique(lambda));
+            custom_lambda_ = true;
             l1_lambda_max_ = - 1.0; // not well defined
             lambda_max_ = - 1.0;    // not well defined
         } else {
@@ -496,8 +500,10 @@ namespace abclass
                                    log_lambda_max + std::log(lambda_min_ratio),
                                    nlambda)
                     );
+                lambda_min_ratio_ = lambda_min_ratio;
             } else {
                 lambda_ = arma::reverse(arma::unique(lambda));
+                custom_lambda_ = true;
             }
         }
         // initialize the estimate cube
@@ -543,11 +549,11 @@ namespace abclass
             old_l1_lambda = l1_lambda;
             for (size_t j { 0 }; j < km1_; ++j) {
                 for (size_t l { int_intercept_ }; l < p1_; ++l) {
+                    if (is_active_strong(l, j) > 0) {
+                        continue;
+                    }
                     if (one_grad_beta(l, j) >= one_strong_rhs) {
                         is_active_strong(l, j) = 1;
-                    } else {
-                        is_active_strong(l, j) = 0;
-                        one_beta(l, j) = 0;
                     }
                 }
             }
@@ -582,14 +588,15 @@ namespace abclass
                     }
                 }
                 if (arma::accu(is_strong_rule_failed) > 0) {
-                    is_active_strong = is_active_strong_old +
+                    is_active_strong = is_active_strong_old ||
                         is_strong_rule_failed;
                     if (verbose > 0) {
                         Rcpp::Rcout << "The strong rule failed.\n"
-                                    << "The size of old active set: ";
-                        Rcpp::Rcout << l1_norm(is_active_strong_old) << "\n";
-                        Rcpp::Rcout << "The size of new active set: ";
-                        Rcpp::Rcout << l1_norm(is_active_strong) << "\n";
+                                    << "The size of old active set: "
+                                    << l1_norm(is_active_strong_old)
+                                    << "\nThe size of new active set: "
+                                    << l1_norm(is_active_strong)
+                                    << "\n";
                     }
                 } else {
                     if (verbose > 0) {

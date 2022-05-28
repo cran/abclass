@@ -59,3 +59,22 @@ select_lambda <- function(cv_mean, cv_sd) {
     list(cv_min = cv_min_idx,
          cv_1se = cv_1se_idx)
 }
+
+## function formal names (formalArgs() from the methods package)
+formal_names <- function(def) {
+    names(formals(def, envir = parent.frame()))
+}
+
+## simplified version of utils::modifyList with keep.null = TRUE
+modify_list <- function (x, val) {
+    stopifnot(is.list(x), is.list(val))
+    xnames <- names(x)
+    vnames <- names(val)
+    vnames <- vnames[nzchar(vnames)]
+    for (v in vnames) {
+        x[v] <- if (v %in% xnames && is.list(x[[v]]) && is.list(val[[v]]))
+                    list(modify_list(x[[v]], val[[v]]))
+                else val[v]
+    }
+    x
+}

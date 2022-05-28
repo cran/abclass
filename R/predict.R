@@ -68,8 +68,9 @@ predict.abclass <- function(object,
     if (! length(object$cross_validation$cv_accuracy) || selection == "all") {
         selection_idx <- seq_len(n_slice)
     } else {
-        cv_idx_list <- with(object$cross_validation,
-                            select_lambda(cv_accuracy_mean, cv_accuracy_sd))
+        ## cv_idx_list <- with(object$cross_validation,
+        ##                     select_lambda(cv_accuracy_mean, cv_accuracy_sd))
+        cv_idx_list <- object$cross_validation
         selection_idx <- cv_idx_list[[selection]]
     }
     ## determine the internal function to call
@@ -79,9 +80,9 @@ predict.abclass <- function(object,
     arg_list <- switch(
         loss_fun,
         "logistic" = list(),
-        "boost" = with(object$loss, list(inner_min = boost_umin)),
-        "hinge_boost" = with(object$loss, list(lum_c = lum_c)),
-        "lum" = with(object$loss, list(lum_a = lum_a, lum_c = lum_c))
+        "boost" = object$loss["boost_umin"],
+        "hinge_boost" = object$loss["lum_c"],
+        "lum" = object$loss[c("lum_a", "lum_c")]
     )
     arg_list$x <- newx
     pred_list <- switch(

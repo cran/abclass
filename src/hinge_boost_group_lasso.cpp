@@ -20,7 +20,7 @@
 #include "export-helpers.h"
 
 // [[Rcpp::export]]
-Rcpp::List rcpp_logistic_glasso(
+Rcpp::List rcpp_hinge_boost_group_lasso(
     const arma::mat& x,
     const arma::uvec& y,
     const arma::vec& lambda,
@@ -32,17 +32,29 @@ Rcpp::List rcpp_logistic_glasso(
     const bool standardize = true,
     const unsigned int nfolds = 0,
     const bool stratified_cv = true,
-    const unsigned int max_iter = 1e5,
-    const double epsilon = 1e-4,
+    const unsigned int alignment = 0,
+    const unsigned int maxit = 1e5,
+    const double epsilon = 1e-3,
     const bool varying_active_set = true,
+    const double lum_c = 0.0,
     const unsigned int verbose = 0
     )
 {
-    abclass::LogisticGLasso object {
+    abclass::HingeBoostGroupLasso object {
         x, y, intercept, standardize, weight
     };
-    return abclass_glasso_fit(object, y,
-                              lambda, nlambda, lambda_min_ratio, group_weight,
-                              nfolds, stratified_cv, max_iter, epsilon,
-                              varying_active_set, verbose);
+    object.set_lum_c(lum_c);
+    return abclass_group_lasso_fit(object,
+                                   y,
+                                   lambda,
+                                   nlambda,
+                                   lambda_min_ratio,
+                                   group_weight,
+                                   nfolds,
+                                   stratified_cv,
+                                   alignment,
+                                   maxit,
+                                   epsilon,
+                                   varying_active_set,
+                                   verbose);
 }

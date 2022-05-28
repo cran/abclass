@@ -30,10 +30,24 @@
 
 // with group lasso
 #include "abclass/AbclassGroupLasso.h"
-#include "abclass/LogisticGLasso.h"
-#include "abclass/BoostGLasso.h"
-#include "abclass/HingeBoostGLasso.h"
-#include "abclass/LumGLasso.h"
+#include "abclass/LogisticGroupLasso.h"
+#include "abclass/BoostGroupLasso.h"
+#include "abclass/HingeBoostGroupLasso.h"
+#include "abclass/LumGroupLasso.h"
+
+// with group scad
+#include "abclass/AbclassGroupSCAD.h"
+#include "abclass/LogisticGroupSCAD.h"
+#include "abclass/BoostGroupSCAD.h"
+#include "abclass/HingeBoostGroupSCAD.h"
+#include "abclass/LumGroupSCAD.h"
+
+// with group mcp
+#include "abclass/AbclassGroupMCP.h"
+#include "abclass/LogisticGroupMCP.h"
+#include "abclass/BoostGroupMCP.h"
+#include "abclass/HingeBoostGroupMCP.h"
+#include "abclass/LumGroupMCP.h"
 
 // simplex class
 #include "abclass/Simplex.h"
@@ -43,7 +57,6 @@
 
 // for cross-validation
 #include "abclass/CrossValidation.h"
-#include "abclass/abclass_net_cv.h"
-#include "abclass/abclass_glasso_cv.h"
+#include "abclass/template_cv.h"
 
 #endif

@@ -1,3 +1,21 @@
+# abclass 0.3.0
+
+## New features
+
+* Added experimental group-wise regularization by group SCAD and group MCP
+  penalty.
+* Added a new function named `abclass.control()` to specify the control
+  parameters and simplify the main function interface.
+
+## Minor changes
+
+* Renamed the argument `max_iter` to `maxit` for `abclass()`.
+
+## Bug fixes
+
+* Fixed the validation indices in cross-validation procedure
+
+
 # abclass 0.2.0
 
 ## New features
@@ -16,7 +34,7 @@
 * Fixed the first derivatives of the boosting loss
 * Fixed the label prediction by using the fitted inner products instead of the
   probability estimates
-* Fixed the computation of regularization term for verbose outputs in
+* Fixed the computation of regularization terms for verbose outputs in
   `AbclassNet`
 * Fixed the computation of validation accuracy in cross-validation
 * Fixed the assignment of `lum_c` in the associated header files.

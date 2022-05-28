@@ -15,25 +15,25 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 //
 
-#ifndef ABCLASS_LOGISTIC_NET_H
-#define ABCLASS_LOGISTIC_NET_H
+#ifndef ABCLASS_LOGISTIC_GROUP_LASSO_H
+#define ABCLASS_LOGISTIC_GROUP_LASSO_H
 
 #include <RcppArmadillo.h>
-#include "AbclassNet.h"
+#include "AbclassGroupLasso.h"
 
 namespace abclass
 {
     // define class for inputs and outputs
-    class LogisticNet : public AbclassNet
+    class LogisticGroupLasso : public AbclassGroupLasso
     {
     protected:
 
-        // set CMD lowerbound
-        inline void set_cmd_lowerbound() override
+        // set GMD lowerbound
+        inline void set_gmd_lowerbound() override
         {
             arma::mat sqx { arma::square(x_) };
             sqx.each_col() %= obs_weight_;
-            cmd_lowerbound_ = arma::sum(sqx, 0) / (4.0 * dn_obs_);
+            gmd_lowerbound_ = arma::sum(sqx, 0) / (4.0 * dn_obs_);
         }
 
         // objective function without regularization
@@ -57,16 +57,16 @@ namespace abclass
     public:
 
         // inherit constructors
-        using AbclassNet::AbclassNet;
+        using AbclassGroupLasso::AbclassGroupLasso;
 
         //! @param x The design matrix without an intercept term.
         //! @param y The category index vector.
-        LogisticNet(const arma::mat& x,
-                    const arma::uvec& y,
-                    const bool intercept = true,
-                    const bool standardize = true,
-                    const arma::vec& weight = arma::vec()) :
-            AbclassNet(x, y, intercept, standardize, weight)
+        LogisticGroupLasso(const arma::mat& x,
+                           const arma::uvec& y,
+                           const bool intercept = true,
+                           const bool standardize = true,
+                           const arma::vec& weight = arma::vec()) :
+            AbclassGroupLasso(x, y, intercept, standardize, weight)
         {
         }
 
