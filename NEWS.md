@@ -1,3 +1,33 @@
+# abclass 0.4.0
+
+## New features
+
+* Added support of sparse matrix `x` of class `sparseMatrix` (provided by the
+  `{Matrix}` package) for `abclass()` and `predict.abclass()`.
+* Added new functions named `cv.abclass()` and `et.abclass()` for training and
+  tuning the angle-based classifiers with cross-validation and an efficient
+  tuning procedure for lasso-type algorithms, respectively.
+  See the corresponding function documentation for details.
+* Added experimental classifiers with sup-norm penalties.  See the functions
+  `supclass()` and `cv.supclass()` for details.
+
+## Major Changes
+
+* Simplified the function `abclass()` and moved the tuning procedure by
+  cross-validation to the function `cv.abclass()`.
+
+## Minor Changes
+
+* Changed the default values of the following arguments for
+  `abclass.control()`.
+  * `alpha`: from `0.5` to `1.0`
+  * `epsilon`: from `1e-3` to `1e-4`
+
+## Bug fixes
+
+* Fixed `alignment` in `abclass.control()`.
+
+
 # abclass 0.3.0
 
 ## New features
@@ -13,7 +43,7 @@
 
 ## Bug fixes
 
-* Fixed the validation indices in cross-validation procedure
+* Fixed the validation indices in the cross-validation procedure
 
 
 # abclass 0.2.0

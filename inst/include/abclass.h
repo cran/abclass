@@ -18,8 +18,16 @@
 #ifndef ABCLASS_H
 #define ABCLASS_H
 
-// base class
+// class
 #include "abclass/Abclass.h"
+#include "abclass/AbclassGroup.h"
+#include "abclass/Control.h"
+#include "abclass/Simplex.h"
+// loss
+#include "abclass/Boost.h"
+#include "abclass/Logistic.h"
+#include "abclass/HingeBoost.h"
+#include "abclass/Lum.h"
 
 // with elastic-net
 #include "abclass/AbclassNet.h"
@@ -49,14 +57,12 @@
 #include "abclass/HingeBoostGroupMCP.h"
 #include "abclass/LumGroupMCP.h"
 
-// simplex class
-#include "abclass/Simplex.h"
-
 // utils
 #include "abclass/utils.h"
 
-// for cross-validation
+// for tuning
 #include "abclass/CrossValidation.h"
 #include "abclass/template_cv.h"
+#include "abclass/template_et.h"
 
 #endif

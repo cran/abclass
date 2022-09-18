@@ -19,11 +19,15 @@
 #define ABCLASS_ABCLASS_H
 
 #include <RcppArmadillo.h>
+#include "Control.h"
 #include "Simplex.h"
 
 namespace abclass
 {
     // base class for the angle-based large margin classifiers
+    // T_x is intended to be arma::mat or arma::sp_mat
+    // T_loss should be one of the loss function classes
+    template <typename T_loss, typename T_x = arma::mat>
     class Abclass
     {
     protected:
@@ -31,8 +35,11 @@ namespace abclass
         // cache variables
         double dn_obs_;              // double version of n_obs_
         unsigned int km1_;           // k - 1
-        unsigned int p1_;            // number of predictors (with intercept)
-        unsigned int int_intercept_; // integer version of intercept_
+        unsigned int inter_;         // integer version of intercept_
+
+        // for the CMD/GMD algorithm
+        double mm_lowerbound0_;
+        arma::rowvec mm_lowerbound_;
 
         // prepare the vertex matrix
         inline void set_vertex_matrix(const unsigned int k)
@@ -40,20 +47,28 @@ namespace abclass
             Simplex sim { k };
             vertex_ = sim.get_vertex();
         }
+        inline void set_ex_vertex_matrix()
+        {
+            ex_vertex_ = arma::mat(n_obs_, km1_);
+            for (size_t i {0}; i < n_obs_; ++i) {
+                ex_vertex_.row(i) = vertex_.row(y_[i]);
+            }
+        }
 
         inline arma::vec get_vertex_y(const unsigned int j) const
         {
             // j in {0, 1, ..., k - 2}
-            arma::vec vj { vertex_.col(j) };
-            return vj.elem(y_);
+            // arma::vec vj { vertex_.col(j) };
+            // return vj.elem(y_);
+            return ex_vertex_.col(j);
         }
 
         // transfer coef for standardized data to coef for non-standardized data
         inline arma::mat rescale_coef(const arma::mat& beta) const
         {
             arma::mat out { beta };
-            if (standardize_) {
-                if (intercept_) {
+            if (control_.standardize_) {
+                if (control_.intercept_) {
                     // for each columns
                     for (size_t k { 0 }; k < km1_; ++k) {
                         arma::vec coef_k { beta.col(k) };
@@ -75,36 +90,80 @@ namespace abclass
             return out;
         }
 
-        // transfer coef for non-standardized data to coef for standardized data
-        inline arma::vec rev_rescale_coef(const arma::vec& beta) const
+        // loss function
+        inline double objective0(const arma::vec& inner) const
         {
-            arma::vec beta0 { beta };
-            double tmp {0};
-            for (size_t j {1}; j < beta.n_elem; ++j) {
-                beta0(j) *= x_scale_(j - 1);
-                tmp += beta(j) * x_center_(j - 1);
-            }
-            beta0(0) += tmp;
-            return beta0;
+            return loss_.loss(inner, control_.obs_weight_);
+        }
+        // the first derivative of the loss function
+        inline arma::vec loss_derivative(const arma::vec& inner) const
+        {
+            return loss_.dloss(inner);
         }
 
-        // the first derivative of the loss function
-        virtual arma::vec loss_derivative(const arma::vec& inner) const = 0;
+        // MM lowerbound used in coordinate-descent algorithm
+        inline void set_mm_lowerbound()
+        {
+            if (control_.intercept_) {
+                mm_lowerbound0_ = loss_.mm_lowerbound(
+                    dn_obs_, control_.obs_weight_);
+            }
+            mm_lowerbound_ = loss_.mm_lowerbound(x_, control_.obs_weight_);
+        }
 
+        inline arma::vec gen_group_weight(
+            const arma::vec& group_weight = arma::vec()
+            ) const
+        {
+            if (group_weight.n_elem < p0_) {
+                arma::vec out { arma::ones(p0_) };
+                if (group_weight.is_empty()) {
+                    return out;
+                }
+            } else if (group_weight.n_elem == p0_) {
+                if (arma::any(group_weight < 0.0)) {
+                    throw std::range_error(
+                        "The 'group_weight' cannot be negative.");
+                }
+                return group_weight;
+            }
+            // else
+            throw std::range_error("Incorrect length of the 'group_weight'.");
+        }
 
     public:
 
+        // from the data
         unsigned int n_obs_;    // number of observations
         unsigned int k_;        // number of categories
         unsigned int p0_;       // number of predictors without intercept
-        arma::mat x_;           // (standardized) x_: n by p (with intercept)
+        unsigned int p1_;       // number of predictors (with intercept)
+        T_x x_;                 // (standardized) x_: n by p (without intercept)
         arma::uvec y_;          // y vector ranging in {0, ..., k - 1}
-        arma::vec obs_weight_;  // optional observation weights: of length n
         arma::mat vertex_;      // unique vertex: k by (k - 1)
-        bool intercept_;        // if to contrains intercepts
-        bool standardize_;      // is x_ standardized (column-wise)
+        arma::mat ex_vertex_;   // expanded vertex for y_: n by (k - 1)
         arma::rowvec x_center_; // the column center of x_
         arma::rowvec x_scale_;  // the column scale of x_
+
+        // parameters
+        Control control_;       // control parameters
+        T_loss loss_;           // loss funciton class
+
+        // tuning by cross-validation
+        arma::mat cv_accuracy_;
+        arma::vec cv_accuracy_mean_;
+        arma::vec cv_accuracy_sd_;
+
+        // tuning by ET-Lasso
+        unsigned int et_npermuted_ { 0 }; // number of permuted predictors
+        arma::uvec et_vs_;                // indices of selected predictors
+
+        // estimates
+        arma::cube coef_;       // p1_ by km1_ for linear learning
+
+        // loss along the solution path
+        arma::vec loss_wo_penalty_;
+        arma::vec penalty_;
 
         // default constructor
         Abclass() {}
@@ -117,39 +176,37 @@ namespace abclass
         }
 
         // main constructor
-        Abclass(const arma::mat& x,
+        Abclass(const T_x& x,
                 const arma::uvec& y,
-                const bool intercept = true,
-                const bool standardize = true,
-                const arma::vec& weight = arma::vec()) :
-            intercept_ (intercept),
-            standardize_ (standardize)
+                const Control& control = Control()) :
+            control_ (control)
         {
             set_data(x, y);
-            set_weight(weight);
+            set_weight(control_.obs_weight_);
         }
 
         // setter
-        inline Abclass* set_data(const arma::mat& x,
+        inline Abclass* set_data(const T_x& x,
                                  const arma::uvec& y)
         {
             x_ = x;
             y_ = y;
-            int_intercept_ = static_cast<unsigned int>(intercept_);
+            inter_ = static_cast<unsigned int>(control_.intercept_);
             km1_ = arma::max(y_); // assume y in {0, ..., k-1}
             k_ = km1_ + 1;
-            set_vertex_matrix(k_);
             n_obs_ = x_.n_rows;
             dn_obs_ = static_cast<double>(n_obs_);
             p0_ = x_.n_cols;
-            p1_ = p0_ + int_intercept_;
-            if (standardize_) {
-                if (intercept_) {
+            p1_ = p0_ + inter_;
+            set_vertex_matrix(k_);
+            set_ex_vertex_matrix();
+            if (control_.standardize_) {
+                if (control_.intercept_) {
                     x_center_ = arma::mean(x_);
                 } else {
                     x_center_ = arma::zeros<arma::rowvec>(x_.n_cols);
                 }
-                x_scale_ = arma::stddev(x_, 1);
+                x_scale_ = col_sd(x_);
                 for (size_t j {0}; j < p0_; ++j) {
                     if (x_scale_(j) > 0) {
                         x_.col(j) = (x_.col(j) - x_center_(j)) / x_scale_(j);
@@ -159,9 +216,6 @@ namespace abclass
                         x_scale_(j) = - 1.0;
                     }
                 }
-            }
-            if (intercept_) {
-                x_ = arma::join_horiz(arma::ones(n_obs_), x_);
             }
             return this;
         }
@@ -176,26 +230,52 @@ namespace abclass
 
         inline Abclass* set_intercept(const bool intercept)
         {
-            intercept_ = intercept;
+            control_.intercept_ = intercept;
             return this;
         }
 
         inline Abclass* set_standardize(const bool standardize)
         {
-            standardize_ = standardize;
+            control_.standardize_ = standardize;
             return this;
         }
 
         inline Abclass* set_weight(const arma::vec& weight)
         {
             if (weight.n_elem != n_obs_) {
-                obs_weight_ = arma::ones(n_obs_);
+                control_.obs_weight_ = arma::ones(n_obs_);
             } else {
-                obs_weight_ = weight / arma::sum(weight) * dn_obs_;
+                control_.obs_weight_ = weight / arma::sum(weight) * dn_obs_;
             }
             return this;
         }
 
+        // setter for group weights
+        inline void set_group_weight(
+            const arma::vec& group_weight = arma::vec()
+            )
+        {
+            if (group_weight.n_elem > 0) {
+                control_.group_weight_ = gen_group_weight(group_weight);
+            } else {
+                control_.group_weight_ = gen_group_weight(
+                    control_.group_weight_);
+            }
+        }
+
+        // linear predictor
+        inline arma::mat linear_score(const arma::mat& beta,
+                                      const T_x& x) const
+        {
+            arma::mat pred_mat;
+            if (control_.intercept_) {
+                pred_mat = x * beta.tail_rows(x.n_cols);
+                pred_mat.each_row() += beta.row(0);
+            } else {
+                pred_mat = x * beta;
+            }
+            return pred_mat;
+        }
         // class conditional probability
         inline arma::mat predict_prob(const arma::mat& pred_f) const
         {
@@ -209,7 +289,6 @@ namespace abclass
             out.each_col() /= row_sums;
             return out;
         }
-
         // predict categories for predicted classification functions
         inline arma::uvec predict_y(const arma::mat& pred_f) const
         {
@@ -227,6 +306,25 @@ namespace abclass
             // note that y can be of length different than dn_obs_
             return arma::sum(max_idx == y) /
                 static_cast<double>(y.n_elem);
+        }
+        // class conditional probability
+        inline arma::mat predict_prob(const arma::mat& beta,
+                                      const T_x& x) const
+        {
+            return predict_prob(linear_score(beta, x));
+        }
+        // prediction based on the inner products
+        inline arma::uvec predict_y(const arma::mat& beta,
+                                    const T_x& x) const
+        {
+            return predict_y(linear_score(beta, x));
+        }
+        // accuracy for tuning
+        inline double accuracy(const arma::mat& beta,
+                               const T_x& x,
+                               const arma::uvec& y) const
+        {
+            return accuracy(linear_score(beta, x), y);
         }
 
     };

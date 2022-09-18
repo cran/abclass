@@ -10,8 +10,9 @@ The package **abclass** provides implementations of the multi-category
 angle-based classifiers (Zhang & Liu, 2014) with the large-margin
 unified machines (Liu, et al., 2011) for high-dimensional data.
 
-Notice that the package is still experimental and under active
-development.
+> **Note** This package is still very experimental and under active
+> development. The function interface is subject to change without
+> guarantee of backward compatibility.
 
 ## Installation
 
@@ -40,11 +41,11 @@ set.seed(123)
 
 ## toy examples for demonstration purpose
 ## reference: example 1 in Zhang and Liu (2014)
-ntrain <- 100 # size of training set
-ntest <- 1000 # size of testing set
-p0 <- 10      # number of actual predictors
-p1 <- 100     # number of random predictors
-k <- 5        # number of categories
+ntrain <- 200  # size of training set
+ntest <- 10000 # size of testing set
+p0 <- 10       # number of actual predictors
+p1 <- 100      # number of random predictors
+k <- 5         # number of categories
 
 n <- ntrain + ntest; p <- p0 + p1
 train_idx <- seq_len(ntrain)
@@ -61,182 +62,70 @@ y <- factor(paste0("label_", y))
 train_y <- y[train_idx]
 test_y <- y[- train_idx]
 
-### regularization through elastic-net penalty
-## logistic deviance loss
-model1 <- abclass(train_x, train_y, nlambda = 100,
-                  nfolds = 3, loss = "logistic")
-pred1 <- predict(model1, test_x)
+### logistic deviance loss with elastic-net penalty
+model1 <- cv.abclass(train_x, train_y, nlambda = 100, nfolds = 3,
+                     grouped = FALSE, loss = "logistic")
+pred1 <- predict(model1, test_x, s = "cv_min")
 table(test_y, pred1)
 ```
 
     ##          pred1
     ## test_y    label_1 label_2 label_3 label_4 label_5
-    ##   label_1     179       1      26       0       0
-    ##   label_2       1     200       1       1       0
-    ##   label_3       4       0     195       0       0
-    ##   label_4       0       2       4     183       3
-    ##   label_5       1       0       3       2     194
+    ##   label_1    1879      20       0     143      17
+    ##   label_2       8    1638       0       0     409
+    ##   label_3     308      23    1652       0      14
+    ##   label_4     111      10       5    1617     152
+    ##   label_5      33      29       3       5    1924
 
 ``` r
 mean(test_y == pred1) # accuracy
 ```
 
-    ## [1] 0.951
+    ## [1] 0.871
 
 ``` r
-## exponential loss approximating AdaBoost
-model2 <- abclass(train_x, train_y, nlambda = 100,
-                  nfolds = 3, loss = "boost")
+### hinge-boost loss with groupwise lasso
+model2 <- cv.abclass(train_x, train_y, nlambda = 100, nfolds = 3,
+                     grouped = TRUE, loss = "hinge-boost")
 pred2 <- predict(model2, test_x, s = "cv_1se")
 table(test_y, pred2)
 ```
 
     ##          pred2
     ## test_y    label_1 label_2 label_3 label_4 label_5
-    ##   label_1     184       0      22       0       0
-    ##   label_2       0     202       0       1       0
-    ##   label_3      18       1     176       3       1
-    ##   label_4       1       5       3     177       6
-    ##   label_5       1       0       0       1     198
+    ##   label_1    2046       4       0       4       5
+    ##   label_2      43    1826       0       1     185
+    ##   label_3      83       0    1887      13      14
+    ##   label_4     476       6       1    1381      31
+    ##   label_5      19      12       3       0    1960
 
 ``` r
 mean(test_y == pred2) # accuracy
 ```
 
-    ## [1] 0.937
+    ## [1] 0.91
 
 ``` r
-## hybrid hinge-boost loss
-model3 <- abclass(train_x, train_y, nlambda = 100,
-                  nfolds = 3, loss = "hinge-boost")
+## tuning by ET-Lasso instead of cross-validation
+model3 <- et.abclass(train_x, train_y, nlambda = 100,
+                     loss = "lum", alpha = 0.5)
 pred3 <- predict(model3, test_x)
 table(test_y, pred3)
 ```
 
     ##          pred3
     ## test_y    label_1 label_2 label_3 label_4 label_5
-    ##   label_1     179       1      26       0       0
-    ##   label_2       1     201       0       1       0
-    ##   label_3       5       0     194       0       0
-    ##   label_4       0       2       3     185       2
-    ##   label_5       1       0       2       2     195
+    ##   label_1    2033       8       4       6       8
+    ##   label_2       7    1993       1       1      53
+    ##   label_3       4       2    1989       0       2
+    ##   label_4     194      22      12    1622      45
+    ##   label_5       6      15       0       2    1971
 
 ``` r
 mean(test_y == pred3) # accuracy
 ```
 
-    ## [1] 0.954
-
-``` r
-## large-margin unified loss
-model4 <- abclass(train_x, train_y, nlambda = 100,
-                  nfolds = 3, loss = "lum")
-pred4 <- predict(model4, test_x)
-table(test_y, pred4)
-```
-
-    ##          pred4
-    ## test_y    label_1 label_2 label_3 label_4 label_5
-    ##   label_1     179       1      26       0       0
-    ##   label_2       1     201       0       1       0
-    ##   label_3       4       0     194       0       1
-    ##   label_4       0       2       3     185       2
-    ##   label_5       1       0       1       0     198
-
-``` r
-mean(test_y == pred4) # accuracy
-```
-
-    ## [1] 0.957
-
-``` r
-### variable selection via group lasso
-## logistic deviance loss
-model1 <- abclass(train_x, train_y, nlambda = 100, nfolds = 3,
-                  grouped = TRUE, loss = "logistic")
-pred1 <- predict(model1, test_x, s = "cv_1se")
-table(test_y, pred1)
-```
-
-    ##          pred1
-    ## test_y    label_1 label_2 label_3 label_4 label_5
-    ##   label_1     173       1      32       0       0
-    ##   label_2       2     197       3       1       0
-    ##   label_3       1       1     197       0       0
-    ##   label_4       0       2       8     180       2
-    ##   label_5       2       0       5       3     190
-
-``` r
-mean(test_y == pred1) # accuracy
-```
-
-    ## [1] 0.937
-
-``` r
-## exponential loss approximating AdaBoost
-model2 <- abclass(train_x, train_y, nlambda = 100, nfolds = 3,
-                  grouped = TRUE, loss = "boost")
-pred2 <- predict(model2, test_x, s = "cv_1se")
-table(test_y, pred2)
-```
-
-    ##          pred2
-    ## test_y    label_1 label_2 label_3 label_4 label_5
-    ##   label_1     189       0      17       0       0
-    ##   label_2       1     202       0       0       0
-    ##   label_3      11       0     187       0       1
-    ##   label_4       0       1       2     181       8
-    ##   label_5       1       0       0       0     199
-
-``` r
-mean(test_y == pred2) # accuracy
-```
-
-    ## [1] 0.958
-
-``` r
-## hybrid hinge-boost loss
-model3 <- abclass(train_x, train_y, nlambda = 100, nfolds = 3,
-                  grouped = TRUE, loss = "hinge-boost")
-pred3 <- predict(model3, test_x)
-table(test_y, pred3)
-```
-
-    ##          pred3
-    ## test_y    label_1 label_2 label_3 label_4 label_5
-    ##   label_1     174       1      31       0       0
-    ##   label_2       0     202       0       1       0
-    ##   label_3      10       0     188       0       1
-    ##   label_4       0       3       7     181       1
-    ##   label_5       1       0       1       3     195
-
-``` r
-mean(test_y == pred3) # accuracy
-```
-
-    ## [1] 0.94
-
-``` r
-## large-margin unified loss
-model4 <- abclass(train_x, train_y, nlambda = 100, nfolds = 3,
-                  grouped = TRUE, loss = "lum")
-pred4 <- predict(model4, test_x)
-table(test_y, pred4)
-```
-
-    ##          pred4
-    ## test_y    label_1 label_2 label_3 label_4 label_5
-    ##   label_1     181       1      24       0       0
-    ##   label_2       0     202       0       1       0
-    ##   label_3       5       0     193       0       1
-    ##   label_4       0       2       5     183       2
-    ##   label_5       1       0       1       0     198
-
-``` r
-mean(test_y == pred4) # accuracy
-```
-
-    ## [1] 0.957
+    ## [1] 0.9608
 
 ## References
 

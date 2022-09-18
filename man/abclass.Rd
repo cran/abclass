@@ -3,7 +3,7 @@
 \name{abclass}
 \alias{abclass}
 \alias{abclass.control}
-\title{Angle-Based Classification}
+\title{Multi-Category Angle-Based Classification}
 \usage{
 abclass(
   x,
@@ -17,24 +17,21 @@ abclass(
 
 abclass.control(
   lambda = NULL,
-  alpha = 0.5,
-  nlambda = 50,
+  alpha = 1,
+  nlambda = 50L,
   lambda_min_ratio = NULL,
   grouped = TRUE,
   group_weight = NULL,
   group_penalty = c("lasso", "scad", "mcp"),
   dgamma = 1,
-  nfolds = 0,
-  stratified_cv = TRUE,
-  alignment = c("fraction", "lambda"),
   lum_a = 1,
   lum_c = 1,
   boost_umin = -5,
-  maxit = 1e+05,
-  epsilon = 0.001,
+  maxit = 100000L,
+  epsilon = 1e-04,
   standardize = TRUE,
   varying_active_set = TRUE,
-  verbose = 0,
+  verbose = 0L,
   ...
 )
 }
@@ -65,17 +62,17 @@ al. (2011) for details.}
 \item{control}{A list of control parameters. See \code{abclass.control()}
 for details.}
 
-\item{...}{Other control parameters passed to \code{abclass.control}.}
+\item{...}{Other control parameters passed to \code{abclass.control()}.}
 
-\item{lambda}{A numeric vector specifying the tuning parameter \emph{lambda}
-of elastic-net penalty.  A data-driven \emph{lambda} sequence will be
-generated and used according to specified \code{alpha}, \code{nlambda}
-and \code{lambda_min_ratio} if this argument is \code{NULL} by default.
-The specified \code{lambda} will be sorted in decreasing order
+\item{lambda}{A numeric vector specifying the tuning parameter
+\emph{lambda}.  A data-driven \emph{lambda} sequence will be generated
+and used according to specified \code{alpha}, \code{nlambda} and
+\code{lambda_min_ratio} if this argument is left as \code{NULL} by
+default.  The specified \code{lambda} will be sorted in decreasing order
 internally and only the unique values will be kept.}
 
 \item{alpha}{A numeric value in [0, 1] representing the mixing parameter
-\emph{alpha} in elastic-net penalty.}
+\emph{alpha}.  The default value is \code{1.0}.}
 
 \item{nlambda}{A positive integer specifying the length of the internally
 generated \emph{lambda} sequence.  This argument will be ignored if a
@@ -86,32 +83,17 @@ smallest lambda parameter to the largest lambda parameter.  The default
 value is set to \code{1e-4} if the sample size is larger than the number
 of predictors, and \code{1e-2} otherwise.}
 
-\item{grouped}{A logicial value.  Experimental flag to apply group Lasso.}
+\item{grouped}{A logicial value.  Experimental flag to apply group
+penalties.}
 
 \item{group_weight}{A numerical vector with nonnegative values representing
-the adaptive penalty factors for grouped lasso.}
+the adaptive penalty factors for the specified group penalty.}
 
 \item{group_penalty}{A character vector specifying the name of the group
 penalty.}
 
 \item{dgamma}{A positive number specifying the increment to the minimal
 gamma parameter for group SCAD or group MCP.}
-
-\item{nfolds}{A nonnegative integer specifying the number of folds for
-cross-validation.  The default value is \code{0} and no cross-validation
-will be performed if \code{nfolds < 2}.}
-
-\item{stratified_cv}{A logical value indicating if the cross-validation
-procedure should be stratified by the response label. The default value
-is \code{TRUE}.}
-
-\item{alignment}{A character vector specifying how to align the lambda
-sequence used in the main fit with the cross-validation fits.  The
-available options are \code{"fraction"} for allowing cross-validation
-fits to have their own lambda sequences and \code{"lambda"} for using
-the same lambda sequence of the main fit.  The option \code{"lambda"}
-will be applied if a meaningful \code{lambda} is specified.  The default
-value is \code{"fraction"}.}
 
 \item{lum_a}{A positive number greater than one representing the parameter
 \emph{a} in LUM, which will be used only if \code{loss = "lum"}.  The
@@ -124,11 +106,11 @@ which will be used only if \code{loss = "hinge-boost"} or \code{loss =
 \item{boost_umin}{A negative number for adjusting the boosting loss for the
 internal majorization procedure.}
 
-\item{maxit}{A positive integer specifying the maximum number of
-iteration.  The default value is \code{10^5}.}
+\item{maxit}{A positive integer specifying the maximum number of iteration.
+The default value is \code{10^5}.}
 
 \item{epsilon}{A positive number specifying the relative tolerance that
-determines convergence.  The default value is \code{1e-3}.}
+determines convergence.  The default value is \code{1e-4}.}
 
 \item{standardize}{A logical value indicating if each column of the design
 matrix should be standardized internally to have mean zero and standard
@@ -142,8 +124,8 @@ algorithm.  The default value is \code{TRUE} for usually more efficient
 estimation procedure.}
 
 \item{verbose}{A nonnegative integer specifying if the estimation procedure
-should print out intermediate steps/results.  The default value is
-\code{0} for silent estimation procedure.}
+is allowed to print out intermediate steps/results.  The default value
+is \code{0} for silent estimation procedure.}
 }
 \value{
 The function \code{abclass()} returns an object of class
@@ -153,7 +135,7 @@ The function \code{abclass()} returns an object of class
 }
 \description{
 Multi-category angle-based large-margin classifiers with regularization by
-the elastic-net penalty.
+the elastic-net or groupwise penalty.
 }
 \examples{
 library(abclass)
@@ -183,16 +165,18 @@ train_y <- y[train_idx]
 test_y <- y[- train_idx]
 
 ## Regularization through ridge penalty
-model1 <- abclass(train_x, train_y, nlambda = 5, nfolds = 3,
-                  loss = "logistic", alpha = 0, lambda_min_ratio = 1e-2)
-pred1 <- predict(model1, test_x)
+control1 <- abclass.control(nlambda = 5, lambda_min_ratio = 1e-3,
+                            alpha = 1, grouped = FALSE)
+model1 <- abclass(train_x, train_y, loss = "logistic",
+                  control = control1)
+pred1 <- predict(model1, test_x, s = 5)
 table(test_y, pred1)
 mean(test_y == pred1) # accuracy
 
 ## groupwise regularization via group lasso
-model2 <- abclass(train_x, train_y, nlambda = 5, nfolds = 3,
-                  grouped = TRUE, loss = "boost")
-pred2 <- predict(model2, test_x)
+model2 <- abclass(train_x, train_y, loss = "boost",
+                  grouped = TRUE, nlambda = 5)
+pred2 <- predict(model2, test_x, s = 5)
 table(test_y, pred2)
 mean(test_y == pred2) # accuracy
 }

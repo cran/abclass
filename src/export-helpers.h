@@ -1,154 +1,68 @@
 #include <RcppArmadillo.h>
 #include <abclass.h>
 
-// for AbclassNet objects
+// for Abclass objects
 template <typename T>
-Rcpp::List abclass_net_fit(
-    T& object,
-    const arma::uvec& y,
-    const arma::vec& lambda,
-    const double alpha,
-    const unsigned int nlambda,
-    const double lambda_min_ratio,
-    const unsigned int nfolds,
-    const bool stratified_cv,
-    const unsigned int alignment,
-    const unsigned int maxit,
-    const double epsilon,
-    const bool varying_active_set,
-    const unsigned int verbose
-    )
+Rcpp::List template_fit(T& object, const bool main_fit)
 {
-    object.fit(lambda, alpha, nlambda, lambda_min_ratio,
-               maxit, epsilon, varying_active_set, verbose);
-    Rcpp::NumericVector lambda_vec { abclass::arma2rvec(object.lambda_) };
-    if (nfolds > 0) {
-        arma::uvec strata;
-        if (stratified_cv) {
-            strata = y;
-        }
-        abclass::abclass_net_cv(object, nfolds, strata, alignment);
+    if (object.control_.et_nstages_ > 0) {
+        abclass::et_lambda(object);
+        return Rcpp::List::create(
+            Rcpp::Named("coefficients") = object.coef_.slice(0),
+            Rcpp::Named("weight") =
+            abclass::arma2rvec(object.control_.obs_weight_),
+            Rcpp::Named("et") = Rcpp::List::create(
+                Rcpp::Named("nstages") = object.control_.et_nstages_,
+                Rcpp::Named("selected") = abclass::arma2rvec(object.et_vs_)
+                ),
+            Rcpp::Named("regularization") = Rcpp::List::create(
+                Rcpp::Named("alpha") = object.control_.alpha_,
+                Rcpp::Named("group_weight") =
+                abclass::arma2rvec(object.control_.group_weight_),
+                Rcpp::Named("dgamma") = object.control_.dgamma_,
+                Rcpp::Named("gamma") = object.control_.gamma_
+                )
+            );
     }
-    return Rcpp::List::create(
-        Rcpp::Named("coefficients") = object.coef_,
-        Rcpp::Named("weight") = abclass::arma2rvec(object.obs_weight_),
-        Rcpp::Named("cross_validation") = Rcpp::List::create(
-            Rcpp::Named("nfolds") = nfolds,
-            Rcpp::Named("stratified") = stratified_cv,
-            Rcpp::Named("alignment") = alignment,
+    Rcpp::List cv_res;
+    if (object.control_.cv_nfolds_ > 0) {
+        arma::uvec strata;
+        if (object.control_.cv_stratified_) {
+            strata = object.y_;
+        }
+        abclass::cv_lambda(object, strata);
+        cv_res = Rcpp::List::create(
+            Rcpp::Named("nfolds") = object.control_.cv_nfolds_,
+            Rcpp::Named("stratified") = object.control_.cv_stratified_,
+            Rcpp::Named("alignment") = object.control_.cv_alignment_,
             Rcpp::Named("cv_accuracy") = object.cv_accuracy_,
             Rcpp::Named("cv_accuracy_mean") =
             abclass::arma2rvec(object.cv_accuracy_mean_),
             Rcpp::Named("cv_accuracy_sd") =
             abclass::arma2rvec(object.cv_accuracy_sd_)
-            ),
-        Rcpp::Named("regularization") = Rcpp::List::create(
-            Rcpp::Named("lambda") = abclass::arma2rvec(lambda_vec),
-            Rcpp::Named("alpha") = alpha,
-            Rcpp::Named("l1_lambda_max") = object.l1_lambda_max_
-            )
-        );
-}
-
-// for AbclassGroupLasso objects
-template <typename T>
-Rcpp::List abclass_group_lasso_fit(
-    T& object,
-    const arma::uvec& y,
-    const arma::vec& lambda,
-    const unsigned int nlambda,
-    const double lambda_min_ratio,
-    const arma::vec& group_weight,
-    const unsigned int nfolds,
-    const bool stratified_cv,
-    const unsigned int alignment,
-    const unsigned int maxit,
-    const double epsilon,
-    const bool varying_active_set,
-    const unsigned int verbose
-    )
-{
-    object.fit(lambda, nlambda, lambda_min_ratio, group_weight,
-               maxit, epsilon, varying_active_set, verbose);
-    Rcpp::NumericVector lambda_vec { abclass::arma2rvec(object.lambda_) };
-    if (nfolds > 0) {
-        arma::uvec strata;
-        if (stratified_cv) {
-            strata = y;
+            );
+        if (! main_fit) {
+            return cv_res;
         }
-        abclass::abclass_group_lasso_cv(object, nfolds, strata, alignment);
     }
+    // else
+    object.fit();
     return Rcpp::List::create(
         Rcpp::Named("coefficients") = object.coef_,
-        Rcpp::Named("weight") = abclass::arma2rvec(object.obs_weight_),
-        Rcpp::Named("cross_validation") = Rcpp::List::create(
-            Rcpp::Named("nfolds") = nfolds,
-            Rcpp::Named("stratified") = stratified_cv,
-            Rcpp::Named("alignment") = alignment,
-            Rcpp::Named("cv_accuracy") = object.cv_accuracy_,
-            Rcpp::Named("cv_accuracy_mean") =
-            abclass::arma2rvec(object.cv_accuracy_mean_),
-            Rcpp::Named("cv_accuracy_sd") =
-            abclass::arma2rvec(object.cv_accuracy_sd_)
-            ),
+        Rcpp::Named("weight") = abclass::arma2rvec(object.control_.obs_weight_),
+        Rcpp::Named("cross_validation") = cv_res,
         Rcpp::Named("regularization") = Rcpp::List::create(
-            Rcpp::Named("lambda") = abclass::arma2rvec(lambda_vec),
+            Rcpp::Named("lambda") =
+            abclass::arma2rvec(object.control_.lambda_),
+            Rcpp::Named("lambda_max") = object.lambda_max_,
+            Rcpp::Named("alpha") = object.control_.alpha_,
             Rcpp::Named("group_weight") =
-            abclass::arma2rvec(object.group_weight_),
-            Rcpp::Named("lambda_max") = object.lambda_max_
-            )
-        );
-}
-
-// for AbclassGroupSCAD/AbclassGroupMCP objects
-template <typename T>
-Rcpp::List abclass_group_ncv_fit(
-    T& object,
-    const arma::uvec& y,
-    const arma::vec& lambda,
-    const unsigned int nlambda,
-    const double lambda_min_ratio,
-    const arma::vec& group_weight,
-    const double dgamma,
-    const unsigned int nfolds,
-    const bool stratified_cv,
-    const unsigned int alignment,
-    const unsigned int maxit,
-    const double epsilon,
-    const bool varying_active_set,
-    const unsigned int verbose
-    )
-{
-    object.fit(lambda, nlambda, lambda_min_ratio, group_weight, dgamma,
-               maxit, epsilon, varying_active_set, verbose);
-    Rcpp::NumericVector lambda_vec { abclass::arma2rvec(object.lambda_) };
-    if (nfolds > 0) {
-        arma::uvec strata;
-        if (stratified_cv) {
-            strata = y;
-        }
-        abclass::abclass_group_ncv_cv(object, nfolds, strata, alignment);
-    }
-    return Rcpp::List::create(
-        Rcpp::Named("coefficients") = object.coef_,
-        Rcpp::Named("weight") = abclass::arma2rvec(object.obs_weight_),
-        Rcpp::Named("cross_validation") = Rcpp::List::create(
-            Rcpp::Named("nfolds") = nfolds,
-            Rcpp::Named("stratified") = stratified_cv,
-            Rcpp::Named("alignment") = alignment,
-            Rcpp::Named("cv_accuracy") = object.cv_accuracy_,
-            Rcpp::Named("cv_accuracy_mean") =
-            abclass::arma2rvec(object.cv_accuracy_mean_),
-            Rcpp::Named("cv_accuracy_sd") =
-            abclass::arma2rvec(object.cv_accuracy_sd_)
+            abclass::arma2rvec(object.control_.group_weight_),
+            Rcpp::Named("dgamma") = object.control_.dgamma_,
+            Rcpp::Named("gamma") = object.control_.gamma_
             ),
-        Rcpp::Named("regularization") = Rcpp::List::create(
-            Rcpp::Named("lambda") = abclass::arma2rvec(lambda_vec),
-            Rcpp::Named("group_weight") =
-            abclass::arma2rvec(object.group_weight_),
-            Rcpp::Named("dgamma") = dgamma,
-            Rcpp::Named("gamma") = object.gamma_,
-            Rcpp::Named("lambda_max") = object.lambda_max_
-            )
+        Rcpp::Named("loss_wo_penalty") = abclass::arma2rvec(
+            object.loss_wo_penalty_),
+        Rcpp::Named("penalty") = abclass::arma2rvec(object.penalty_)
         );
 }

@@ -19,60 +19,73 @@
 #define ABCLASS_ABCLASS_GROUP_SCAD_H
 
 #include <RcppArmadillo.h>
-#include "Abclass.h"
+#include "AbclassGroup.h"
+#include "Control.h"
 #include "utils.h"
 
 namespace abclass
 {
-    class AbclassGroupSCAD : public Abclass
+    template <typename T_loss, typename T_x>
+    class AbclassGroupSCAD : public AbclassGroup<T_loss, T_x>
     {
     protected:
-        // for groupwise majorization descent
-        arma::rowvec gmd_lowerbound_; // 1 by p1_
-        double max_mg_;               // arma::max(gmd_lowerbound_)
+        // data
+        using AbclassGroup<T_loss, T_x>::dn_obs_;
+        using AbclassGroup<T_loss, T_x>::km1_;
+        using AbclassGroup<T_loss, T_x>::inter_;
+        using AbclassGroup<T_loss, T_x>::mm_lowerbound_;
+        using AbclassGroup<T_loss, T_x>::mm_lowerbound0_;
 
-        // pure virtual functions
-        virtual void set_gmd_lowerbound() = 0;
-        virtual double objective0(const arma::vec& inner) const = 0;
+        // functions
+        using AbclassGroup<T_loss, T_x>::loss_derivative;
+        using AbclassGroup<T_loss, T_x>::gen_group_weight;
+        using AbclassGroup<T_loss, T_x>::mm_gradient;
+        using AbclassGroup<T_loss, T_x>::mm_gradient0;
+        using AbclassGroup<T_loss, T_x>::gradient;
+        using AbclassGroup<T_loss, T_x>::objective0;
+        using AbclassGroup<T_loss, T_x>::set_mm_lowerbound;
 
         // common methods
         inline double scad_group_penalty(const arma::rowvec& beta,
-                                        const double lambda,
-                                        const double gamma) const
+                                         const double lambda,
+                                         const double gamma,
+                                         const double ridge) const
         {
             double l2_beta { l2_norm(beta) };
-            return scad_penalty(l2_beta, lambda, gamma);
+            return scad_penalty(l2_beta, lambda, gamma, ridge);
         }
         inline double scad_penalty(const double theta,
-                                  const double lambda,
-                                  const double gamma) const
+                                   const double lambda,
+                                   const double gamma,
+                                   const double ridge) const
         {
+            const double ridge_pen { 0.5 * ridge * theta * theta };
             if (theta > gamma * lambda) {
-                return 0.5 * lambda * lambda * (gamma + 1);
+                return 0.5 * lambda * lambda * (gamma + 1) + ridge_pen;
             }
             if (theta > lambda) {
                 return (gamma * lambda * theta -
-                        0.5 * (theta * theta + lambda * lambda)) / (gamma - 1);
+                        0.5 * (theta * theta + lambda * lambda)) /
+                    (gamma - 1) + ridge_pen;
             }
-            return gamma * lambda;
+            return lambda * theta + ridge_pen;
         }
 
         inline double regularization(
             const arma::mat& beta,
             const double lambda,
             const double gamma,
+            const double ridge,
             const arma::vec& group_weight
             ) const
         {
             double out { 0.0 };
-            arma::uvec idx { arma::find(group_weight > 0.0) };
-            arma::uvec::iterator it { idx.begin() };
-            arma::uvec::iterator it_end { idx.end() };
-            for (; it != it_end; ++it) {
+            for (size_t g {0}; g < group_weight.n_elem; ++g) {
                 out += scad_group_penalty(
-                    beta.row(*it),
-                    lambda * group_weight(*it),
-                    gamma);
+                    beta.row(g + inter_),
+                    lambda * group_weight(g),
+                    gamma,
+                    ridge);
             }
             return out;
         }
@@ -83,40 +96,12 @@ namespace abclass
             const arma::mat& beta,
             const double lambda,
             const double gamma,
+            const double ridge,
             const arma::vec& group_weight
             ) const
         {
             return objective0(inner) +
-                regularization(beta, lambda, gamma, group_weight);
-        }
-
-        // define gradient function for j-th predictor
-        inline arma::rowvec gmd_gradient(const arma::vec& inner,
-                                         const unsigned int j) const
-        {
-            arma::vec inner_grad { loss_derivative(inner) };
-            arma::rowvec out { arma::zeros<arma::rowvec>(km1_) };
-            for (size_t i {0}; i < n_obs_; ++i) {
-                out += obs_weight_[i] * inner_grad[i] * x_(i, j) *
-                    vertex_.row(y_[i]);
-            }
-            return out / dn_obs_;
-        }
-
-        // gradient matrix for beta
-        inline arma::mat gradient(const arma::vec& inner) const
-        {
-            arma::mat out { arma::zeros(p1_, km1_) };
-            arma::vec inner_grad { loss_derivative(inner) };
-            for (size_t j {0}; j < p1_; ++j) {
-                arma::rowvec tmp { arma::zeros<arma::rowvec>(km1_) };
-                for (size_t i {0}; i < n_obs_; ++i) {
-                    tmp += obs_weight_[i] * inner_grad[i] * x_(i, j) *
-                        vertex_.row(y_[i]);
-                }
-                out.row(j) = tmp;
-            }
-            return out / dn_obs_;
+                regularization(beta, lambda, gamma, ridge, group_weight);
         }
 
         // run one cycle of coordinate descent over a given active set
@@ -125,6 +110,7 @@ namespace abclass
                                          arma::uvec& is_active,
                                          const double lambda,
                                          const double gamma,
+                                         const double ridge,
                                          const bool update_active,
                                          const unsigned int verbose);
 
@@ -134,110 +120,47 @@ namespace abclass
                                          arma::uvec& is_active,
                                          const double lambda,
                                          const double gamma,
+                                         const double ridge,
                                          const bool varying_active_set,
                                          const unsigned int max_iter,
                                          const double epsilon,
                                          const unsigned int verbose);
 
     public:
-        // inherit constructors
-        using Abclass::Abclass;
+        // inherit
+        using AbclassGroup<T_loss, T_x>::AbclassGroup;
+        using AbclassGroup<T_loss, T_x>::control_;
+        using AbclassGroup<T_loss, T_x>::n_obs_;
+        using AbclassGroup<T_loss, T_x>::p0_;
+        using AbclassGroup<T_loss, T_x>::p1_;
+        using AbclassGroup<T_loss, T_x>::ex_vertex_;
+        using AbclassGroup<T_loss, T_x>::x_;
+        using AbclassGroup<T_loss, T_x>::y_;
+        using AbclassGroup<T_loss, T_x>::et_npermuted_;
 
-        // regularization
-        // the "big" enough lambda => zero coef unless alpha = 0
-        double lambda_max_;
-        arma::vec lambda_;        // lambda sequence
-        double gamma_;            // the gamma parameter > 1
-        arma::vec group_weight_;  // adaptive weights for each group
-        // did user specified a customized lambda sequence?
-        bool custom_lambda_ = false;
-        double lambda_min_ratio_ = 0.01;
+        using AbclassGroup<T_loss, T_x>::lambda_max_;
+        using AbclassGroup<T_loss, T_x>::custom_lambda_;
+        using AbclassGroup<T_loss, T_x>::coef_;
 
-        // estimates
-        arma::cube coef_;         // p1_ by km1_
-
-        // tuning by cross-validation
-        arma::mat cv_accuracy_;
-        arma::vec cv_accuracy_mean_;
-        arma::vec cv_accuracy_sd_;
-
-        // control
-        double epsilon_;          // relative tolerance for convergence check
-        unsigned int max_iter_;   // maximum number of iterations
-        bool varying_active_set_; // if active set should be adaptive
-
-        // cache
-        unsigned int num_iter_;   // number of CMD cycles till convergence
+        using AbclassGroup<T_loss, T_x>::rescale_coef;
+        using AbclassGroup<T_loss, T_x>::set_group_weight;
 
         // for a sequence of lambda's
-        inline void fit(const arma::vec& lambda,
-                        const unsigned int nlambda,
-                        const double lambda_min_ratio,
-                        const arma::vec& group_weight,
-                        const double dgamma,
-                        const unsigned int max_iter,
-                        const double epsilon,
-                        const bool varying_active_set,
-                        const unsigned int verbose);
+        inline void fit() override;
 
-        // class conditional probability
-        inline arma::mat predict_prob(const arma::mat& beta,
-                                      const arma::mat& x) const
-        {
-            return Abclass::predict_prob(x * beta);
-        }
-        // prediction based on the inner products
-        inline arma::uvec predict_y(const arma::mat& beta,
-                                    const arma::mat& x) const
-        {
-            return Abclass::predict_y(x * beta);
-        }
-        // accuracy for tuning
-        inline double accuracy(const arma::mat& beta,
-                               const arma::mat& x,
-                               const arma::uvec& y) const
-        {
-            return Abclass::accuracy(x * beta, y);
-        }
-
-        inline arma::vec gen_group_weight(
-            const arma::vec& group_weight = arma::vec()
-            ) const
-        {
-            if (group_weight.n_elem < p1_) {
-                arma::vec out { arma::ones(p1_) };
-                out[0] = 0.0;
-                if (group_weight.is_empty()) {
-                    return out;
-                }
-                if (group_weight.n_elem == p0_) {
-                    for (size_t j {1}; j < p1_; ++j) {
-                        out[j] = group_weight[j - 1];
-                    }
-                    return out;
-                }
-            } else if (group_weight.n_elem == p1_) {
-                if (arma::any(group_weight < 0.0)) {
-                    throw std::range_error(
-                        "The 'group_weight' cannot be negative.");
-                }
-                return group_weight;
-            }
-            // else
-            throw std::range_error("Incorrect length of the 'group_weight'.");
-        }
-
-        inline void set_group_weight(
-            const arma::vec& group_weight = arma::vec()
-            )
-        {
-            group_weight_ = gen_group_weight(group_weight);
-        }
-
+        // setter
         inline void set_gamma(const double dgamma = 0.01)
         {
+            if (mm_lowerbound_.empty()) {
+                set_mm_lowerbound();
+            }
+            // exclude zeros lowerbounds from constant columns
+            const double min_mg {
+                std::min(mm_lowerbound_(arma::find(mm_lowerbound_ > 0.0)).min(),
+                         mm_lowerbound0_)
+            };
             if (dgamma > 0.0) {
-                gamma_ = dgamma + 1.0 + 1.0 / max_mg_;
+                control_.gamma_ = dgamma + 1.0 + 1.0 / min_mg;
                 return;
             }
             throw std::range_error("The 'dgamma' must be positive.");
@@ -246,12 +169,14 @@ namespace abclass
     };
 
     // run one GMD cycle over active sets
-    inline void AbclassGroupSCAD::run_one_active_cycle(
+    template <typename T_loss, typename T_x>
+    inline void AbclassGroupSCAD<T_loss, T_x>::run_one_active_cycle(
         arma::mat& beta,
         arma::vec& inner,
         arma::uvec& is_active,
         const double lambda,
         const double gamma,
+        const double ridge,
         const bool update_active,
         const unsigned int verbose
         )
@@ -265,43 +190,62 @@ namespace abclass
         };
         if (verbose > 1) {
             obj_verbose = objective0(inner);
-            reg_verbose = regularization(beta, lambda, gamma, group_weight_);
+            reg_verbose = regularization(beta, lambda, gamma, ridge,
+                                         control_.group_weight_);
             ell_verbose = obj_verbose + reg_verbose;
         }
-        for (size_t j {0}; j < p1_; ++j) {
+        // for intercept
+        if (control_.intercept_) {
+            arma::rowvec delta_beta0 {
+                - mm_gradient0(inner) / mm_lowerbound0_
+            };
+            beta.row(0) += delta_beta0;
+            arma::vec tmp_du { ex_vertex_ * delta_beta0.t() };
+            inner += tmp_du;
+        }
+        // for predictors
+        for (size_t j {0}; j < p0_; ++j) {
             if (is_active(j) == 0) {
                 continue;
             }
-            arma::rowvec old_beta_j { beta.row(j) };
-            double mj { gmd_lowerbound_(j) }; // m_g
-            arma::rowvec zj {
-                - gmd_gradient(inner, j) / mj + beta.row(j)
+            const size_t j1 { j + inter_ };
+            const double mj { mm_lowerbound_(j) }; // m_g
+            // early exit for zero mj from constant columns
+            if (isAlmostEqual(mj, 0.0)) {
+                beta.row(j1).zeros();
+                is_active(j) = 0;
+                continue;
+            }
+            const arma::rowvec old_beta_j { beta.row(j1) };
+            const arma::rowvec zj {
+                - mm_gradient(inner, j) / mj + old_beta_j
             };
-            double lambda_j { lambda * group_weight_(j) };
-            double zj2 { l2_norm(zj) };
+            const double lambda_j { lambda * control_.group_weight_(j) };
+            const double zj2 { l2_norm(zj) };
+            const double mjp { mj + ridge };    // m_g'
+            const double mj_ratio { mjp / mj }; // m_g' / m_g > 1
             // update beta
-            if (zj2 > gamma * lambda_j) {
-                beta.row(j) = zj;
-            } else if (zj2 > (mj + 1) * lambda_j / mj) {
-                double tmp { (gamma - 1) * mj };
-                beta.row(j) = tmp / (tmp - 1) *
-                    (1 - gamma * lambda_j / tmp / zj2) * zj;
+            if (zj2 > mj_ratio * gamma * lambda_j) {
+                beta.row(j1) = zj / mj_ratio;
+            } else if (zj2 > (mjp + 1.0) * lambda_j / mj) {
+                const double numer { (gamma - 1.0) * mj };
+                const double denom { (gamma - 1.0) * mjp - 1.0 };
+                beta.row(j1) = numer / denom *
+                    (1.0 - gamma * lambda_j / numer / zj2) * zj;
             } else {
-                double tmp { 1 - lambda_j / mj / zj2 };
-                if (tmp <= 0.0) {
-                    beta.row(j) = arma::zeros<arma::rowvec>(km1_);
+                const double tmp { 1.0 - lambda_j / mj / zj2 };
+                if (tmp > 0.0) {
+                    beta.row(j1) = tmp / mj_ratio * zj;
                 } else {
-                    beta.row(j) = gamma * mj / (gamma * mj - 1) *
-                        tmp * zj;
+                    beta.row(j1).zeros();
                 }
             }
-            for (size_t i {0}; i < n_obs_; ++i) {
-                inner(i) += x_(i, j) *
-                    arma::accu((beta.row(j) - old_beta_j) % vertex_.row(y_(i)));
-            }
+            arma::rowvec delta_beta_j { (beta.row(j1) - old_beta_j) };
+            arma::vec delta_vj { ex_vertex_ * delta_beta_j.t() };
+            inner += x_.col(j) % delta_vj;
             if (update_active) {
                 // check if it has been shrinkaged to zero
-                if (arma::any(beta.row(j) != 0.0)) {
+                if (l1_norm(beta.row(j1)) > 0.0) {
                     is_active(j) = 1;
                 } else {
                     is_active(j) = 0;
@@ -314,7 +258,8 @@ namespace abclass
             Rprintf("  from %7.7f (obj. %7.7f + reg. %7.7f)\n",
                     ell_verbose, obj_verbose, reg_verbose);
             obj_verbose = objective0(inner);
-            reg_verbose = regularization(beta, lambda, gamma, group_weight_);
+            reg_verbose = regularization(beta, lambda, gamma, ridge,
+                                         control_.group_weight_);
             ell_verbose = obj_verbose + reg_verbose;
             Rprintf("    to %7.7f (obj. %7.7f + reg. %7.7f)\n",
                     ell_verbose, obj_verbose, reg_verbose);
@@ -326,25 +271,28 @@ namespace abclass
     }
 
     // run CMD cycles over active sets
-    inline void AbclassGroupSCAD::run_gmd_active_cycle(
+    template <typename T_loss, typename T_x>
+    inline void AbclassGroupSCAD<T_loss, T_x>::run_gmd_active_cycle(
         arma::mat& beta,
         arma::vec& inner,
         arma::uvec& is_active,
         const double lambda,
         const double gamma,
+        const double ridge,
         const bool varying_active_set,
         const unsigned int max_iter,
         const double epsilon,
         const unsigned int verbose
         )
     {
-        size_t i {0};
-        arma::mat beta0 { beta };
+        size_t i {0}, num_iter {0};
+        // arma::mat beta0 { beta };
+        double loss0 { objective0(inner) }, loss1 { loss0 };
         // use active-set if p > n ("helps when p >> n")
         if (varying_active_set) {
             arma::uvec is_active_strong { is_active },
                 is_active_varying { is_active };
-            if (verbose > 1) {
+            if (verbose > 0) {
                 Rcpp::Rcout << "The size of active set from strong rule: "
                             << l1_norm(is_active_strong)
                             << "\n";
@@ -353,96 +301,98 @@ namespace abclass
                 // cycles over the active set
                 size_t ii {0};
                 while (ii < max_iter) {
+                    num_iter = ii + 1;
+                    Rcpp::checkUserInterrupt();
                     run_one_active_cycle(beta, inner, is_active_varying,
-                                         lambda, gamma, true, verbose);
-                    if (rel_diff(beta0, beta) < epsilon) {
-                        num_iter_ = ii + 1;
+                                         lambda, gamma, ridge, true, verbose);
+                    // if (rel_diff(beta0, beta) < epsilon) {
+                    //     break;
+                    // }
+                    // beta0 = beta;
+                    loss1 = objective0(inner);
+                    if (std::abs(loss1 - loss0) < epsilon) {
                         break;
                     }
-                    beta0 = beta;
-                    ii++;
+                    loss0 = loss1;
+                    ++ii;
                 }
                 // run a full cycle over the converged beta
                 run_one_active_cycle(beta, inner, is_active,
-                                     lambda, gamma, true, verbose);
+                                     lambda, gamma, ridge, true, verbose);
+                ++num_iter;
                 // check two active sets coincide
-                if (is_gt(l1_norm(is_active_varying - is_active), 0)) {
+                if (l1_norm(is_active_varying - is_active) > 0) {
                     // if different, repeat this process
-                    if (verbose > 1) {
+                    if (verbose > 0) {
                         Rcpp::Rcout << "Changed the active set from "
                                     << l1_norm(is_active_varying)
                                     << " to "
                                     << l1_norm(is_active)
                                     << " after "
-                                    << num_iter_ + 1
+                                    << num_iter
                                     << " iteration(s)\n";
                     }
                     is_active_varying = is_active;
                     // recover the active set
                     is_active = is_active_strong;
-                    i++;
+                    ++i;
                 } else {
-                    if (verbose > 1) {
+                    if (verbose > 0) {
                         Rcpp::Rcout << "Converged over the active set after "
-                                    << num_iter_ + 1
+                                    << num_iter
                                     << " iteration(s)\n";
                         Rcpp::Rcout << "The size of active set is "
                                     << l1_norm(is_active) << "\n";
                     }
-                    num_iter_ = i + 1;
                     break;
                 }
+            }
+            if (verbose > 0) {
+                msg("Outer loop reached the maximum number of iteratons.");
             }
         } else {
             // regular coordinate descent
             while (i < max_iter) {
+                Rcpp::checkUserInterrupt();
+                ++num_iter;
                 run_one_active_cycle(beta, inner, is_active,
-                                     lambda, gamma, false, verbose);
-                if (rel_diff(beta0, beta) < epsilon) {
-                    num_iter_ = i + 1;
+                                     lambda, gamma, ridge, false, verbose);
+                // if (rel_diff(beta0, beta) < epsilon) {
+                //     break;
+                // }
+                // beta0 = beta;
+                loss1 = objective0(inner);
+                if (std::abs(loss1 - loss0) < epsilon) {
                     break;
                 }
-                beta0 = beta;
-                i++;
+                loss0 = loss1;
+                ++i;
             }
-        }
-        if (verbose > 0) {
-            if (num_iter_ < max_iter) {
-                Rcpp::Rcout << "Converged after "
-                            << num_iter_
-                            << " iteration(s)\n";
-            } else {
-                msg("Reached the maximum number of iteratons.");
+            if (verbose > 0) {
+                if (num_iter < max_iter) {
+                    Rcpp::Rcout << "Outer loop converged after "
+                                << num_iter
+                                << " iteration(s)\n";
+                } else {
+                    msg("Outer loop reached the maximum number of iteratons.");
+                }
             }
         }
     }
 
     // for a sequence of lambda's
     // SCAD_group_penalty(l2_norm(beta_j), group_weight_j * lambda, gamma)
-    inline void AbclassGroupSCAD::fit(
-        const arma::vec& lambda,
-        const unsigned int nlambda,
-        const double lambda_min_ratio,
-        const arma::vec& group_weight,
-        const double dgamma,
-        const unsigned int max_iter,
-        const double epsilon,
-        const bool varying_active_set,
-        const unsigned int verbose
-        )
+    template <typename T_loss, typename T_x>
+    inline void AbclassGroupSCAD<T_loss, T_x>::fit()
     {
         // set the CMD lowerbound
-        set_gmd_lowerbound();
+        set_mm_lowerbound();
         // set group weight
-        set_group_weight(group_weight);
+        set_group_weight();
         // set gamma
-        set_gamma(dgamma);
-        arma::uvec penalty_group { arma::find(group_weight_ > 0.0) };
-        arma::uvec penalty_free { arma::find(group_weight_ == 0.0) };
-        // record control
-        epsilon_ = epsilon;
-        max_iter_ = max_iter;
-        varying_active_set_ = varying_active_set;
+        set_gamma(control_.dgamma_);
+        arma::uvec penalty_group { arma::find(control_.group_weight_ > 0.0) };
+        arma::uvec penalty_free { arma::find(control_.group_weight_ == 0.0) };
         // initialize
         arma::vec one_inner { arma::zeros(n_obs_) };
         arma::mat one_beta { arma::zeros(p1_, km1_) },
@@ -454,47 +404,67 @@ namespace abclass
         for (arma::uvec::iterator it { penalty_group.begin() };
              it != penalty_group.end(); ++it) {
             double tmp { l2_norm(one_grad_beta.row(*it)) };
-            tmp /= group_weight_(*it);
+            tmp /= control_.group_weight_(*it);
+            tmp /= std::max(control_.alpha_, 1e-2);
             if (lambda_max_ < tmp) {
                 lambda_max_ = tmp;
             }
         }
         // set up lambda sequence
-        if (lambda.empty()) {
+        if (control_.lambda_.empty()) {
             double log_lambda_max { std::log(lambda_max_) };
-            lambda_ = arma::exp(
+            control_.lambda_ = arma::exp(
                 arma::linspace(log_lambda_max,
-                               log_lambda_max + std::log(lambda_min_ratio),
-                               nlambda)
+                               log_lambda_max +
+                               std::log(control_.lambda_min_ratio_),
+                               control_.nlambda_)
                 );
-            lambda_min_ratio_ = lambda_min_ratio;
         } else {
-            lambda_ = arma::reverse(arma::unique(lambda));
+            control_.lambda_ = arma::reverse(arma::unique(control_.lambda_));
+            control_.nlambda_ = control_.lambda_.n_elem;
             custom_lambda_ = true;
         }
         // initialize the estimate cube
-        coef_ = arma::cube(p1_, km1_, lambda_.n_elem, arma::fill::zeros);
+        coef_ = arma::cube(p1_, km1_, control_.lambda_.n_elem,
+                           arma::fill::zeros);
+        this->loss_wo_penalty_ = arma::zeros(control_.lambda_.n_elem);
+        this->penalty_ = this->loss_wo_penalty_;
 
         double one_strong_rhs { 0.0 };
         // get the solution (intercepts) of l1_lambda_max for a warm start
-        arma::uvec is_active_strong { arma::zeros<arma::uvec>(p1_) };
+        arma::uvec is_active_strong { arma::zeros<arma::uvec>(p0_) };
         // only need to estimate beta not in the penalty group
         for (arma::uvec::iterator it { penalty_free.begin() };
              it != penalty_free.end(); ++it) {
             is_active_strong(*it) = 1;
         }
-        run_gmd_active_cycle(one_beta, one_inner, is_active_strong,
-                             lambda_max_, gamma_, false,
-                             max_iter, epsilon, verbose);
+        double l1_lambda { control_.alpha_ * lambda_max_ };
+        double l2_lambda { (1 - control_.alpha_) * lambda_max_ };
+        run_gmd_active_cycle(one_beta,
+                             one_inner,
+                             is_active_strong,
+                             l1_lambda,
+                             control_.gamma_,
+                             l2_lambda,
+                             false,
+                             control_.max_iter_,
+                             control_.epsilon_,
+                             control_.verbose_);
         // optim with varying active set when p > n
         double old_lambda { lambda_max_ }; // for strong rule
         // main loop: for each lambda
-        for (size_t li { 0 }; li < lambda_.n_elem; ++li) {
-            double lambda_li { lambda_(li) };
+        for (size_t li { 0 }; li < control_.lambda_.n_elem; ++li) {
+            double lambda_li { control_.lambda_(li) };
+            l1_lambda = control_.alpha_ * lambda_li;
+            l2_lambda = (1 - control_.alpha_) * lambda_li;
             // early exit for lambda greater than lambda_max_
             // note that lambda is sorted
             if (lambda_li >= lambda_max_) {
                 coef_.slice(li) = rescale_coef(one_beta);
+                this->loss_wo_penalty_(li) = objective0(one_inner);
+                this->penalty_(li) = regularization(
+                    one_beta, l1_lambda, control_.gamma_,
+                    l2_lambda, control_.group_weight_);
                 continue;
             }
             // update active set by strong rule
@@ -505,16 +475,16 @@ namespace abclass
                     continue;
                 }
                 double one_strong_lhs { l2_norm(one_grad_beta.row(*it)) };
-                one_strong_rhs = group_weight_(*it) *
-                    (gamma_ / (gamma_ - 2) * (lambda_li - old_lambda) +
-                        lambda_li);
+                one_strong_rhs = control_.group_weight_(*it) *
+                    (control_.gamma_ / (control_.gamma_ - 2) *
+                     (l1_lambda - old_lambda) + l1_lambda);
                 if (one_strong_lhs >= one_strong_rhs) {
                     is_active_strong(*it) = 1;
                 }
             }
-            old_lambda = lambda_li;
+            old_lambda = l1_lambda; // for next iteration
             bool kkt_failed { true };
-            one_strong_rhs = lambda_li;
+            one_strong_rhs = l1_lambda;
             // eventually, strong rule will guess correctly
             while (kkt_failed) {
                 arma::uvec is_active_strong_old { is_active_strong };
@@ -522,10 +492,17 @@ namespace abclass
                     arma::zeros<arma::uvec>(is_active_strong.n_elem)
                 };
                 // update beta
-                run_gmd_active_cycle(one_beta, one_inner, is_active_strong,
-                                     lambda_li, gamma_, varying_active_set,
-                                     max_iter, epsilon, verbose);
-                if (verbose > 0) {
+                run_gmd_active_cycle(one_beta,
+                                     one_inner,
+                                     is_active_strong,
+                                     l1_lambda,
+                                     control_.gamma_,
+                                     l2_lambda,
+                                     control_.varying_active_set_,
+                                     control_.max_iter_,
+                                     control_.epsilon_,
+                                     control_.verbose_);
+                if (control_.verbose_ > 0) {
                     msg("Checking the KKT condition for the null set.");
                 }
                 // check kkt condition
@@ -534,8 +511,8 @@ namespace abclass
                     if (is_active_strong_old(*it) > 0) {
                         continue;
                     }
-                    if (l2_norm(gmd_gradient(one_inner, *it)) >
-                        one_strong_rhs * group_weight_(*it)) {
+                    if (l2_norm(mm_gradient(one_inner, *it)) >
+                        one_strong_rhs * control_.group_weight_(*it)) {
                         // update active set
                         is_strong_rule_failed(*it) = 1;
                     }
@@ -543,7 +520,7 @@ namespace abclass
                 if (arma::accu(is_strong_rule_failed) > 0) {
                     is_active_strong = is_active_strong_old ||
                         is_strong_rule_failed;
-                    if (verbose > 0) {
+                    if (control_.verbose_ > 0) {
                         Rcpp::Rcout << "The strong rule failed for "
                                     << arma::accu(is_strong_rule_failed)
                                     << " group(s)\nThe size of old active set: "
@@ -553,13 +530,48 @@ namespace abclass
                                     << "\n";
                     }
                 } else {
-                    if (verbose > 0) {
+                    if (control_.verbose_ > 0) {
                         msg("The strong rule worked.\n");
                     }
                     kkt_failed = false;
                 }
             }
+            if (et_npermuted_ > 0) {
+                if (control_.verbose_ > 0) {
+                    msg("[ET] check if any pseudo-predictors was selected.");
+                }
+                // assume the last (permuted ) predictors are inactive
+                arma::mat permuted_beta { one_beta.tail_rows(et_npermuted_) };
+                if (! permuted_beta.is_zero(arma::datum::eps)) {
+                    if (li == 0) {
+                        msg("Warning: Fail to tune by ET-lasso; ",
+                            "selected pseudo-predictor(s) by ",
+                            "the largest lamabda.\n",
+                            "Suggestion: increase 'lambda', ",
+                            "'lambda_min_ratio' or 'nlambda'?");
+                    } else {
+                        coef_ = coef_.head_slices(li);
+                    }
+                    if (control_.verbose_ > 0) {
+                        msg("[ET] selected pseudo-predictor(s).\n");
+                    }
+                    break;
+                }
+                if (control_.verbose_ > 0) {
+                    msg("[ET] none of pseudo-predictors was selected.\n");
+                }
+                if (li == control_.lambda_.n_elem - 1) {
+                    msg("Warning: Fail to tune by ET-lasso; ",
+                        "no pseudo-predictors selected ",
+                        "by the smallest lambda.\n",
+                        "Suggestion: decrease 'lambda' or 'lambda_min_ratio'?");
+                }
+            }
             coef_.slice(li) = rescale_coef(one_beta);
+            this->loss_wo_penalty_(li) = objective0(one_inner);
+            this->penalty_(li) = regularization(
+                one_beta, l1_lambda, control_.gamma_,
+                l2_lambda, control_.group_weight_);
         }
     }
 

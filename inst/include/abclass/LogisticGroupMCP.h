@@ -20,57 +20,18 @@
 
 #include <RcppArmadillo.h>
 #include "AbclassGroupMCP.h"
+#include "Logistic.h"
+#include "Control.h"
 
 namespace abclass
 {
     // define class for inputs and outputs
-    class LogisticGroupMCP : public AbclassGroupMCP
+    template <typename T_x>
+    class LogisticGroupMCP : public AbclassGroupMCP<Logistic, T_x>
     {
-    protected:
-
-        // set GMD lowerbound
-        inline void set_gmd_lowerbound() override
-        {
-            arma::mat sqx { arma::square(x_) };
-            sqx.each_col() %= obs_weight_;
-            gmd_lowerbound_ = arma::sum(sqx, 0) / (4.0 * dn_obs_);
-            max_mg_ = gmd_lowerbound_.max();
-        }
-
-        // objective function without regularization
-        inline double objective0(const arma::vec& inner) const override
-        {
-            return arma::mean(obs_weight_ %
-                              arma::log(1.0 + arma::exp(- inner)));
-        }
-
-        // the first derivative of the loss function
-        inline arma::vec loss_derivative(const arma::vec& u) const override
-        {
-            arma::vec out { arma::zeros(u.n_elem) };
-            for (size_t i {0}; i < out.n_elem; ++i) {
-                out[i] = - 1.0 / (1.0 + std::exp(u[i]));
-            }
-            return out;
-            // return - 1.0 / (1.0 + arma::exp(u));
-        }
-
     public:
-
-        // inherit constructors
-        using AbclassGroupMCP::AbclassGroupMCP;
-
-        //! @param x The design matrix without an intercept term.
-        //! @param y The category index vector.
-        LogisticGroupMCP(const arma::mat& x,
-                         const arma::uvec& y,
-                         const bool intercept = true,
-                         const bool standardize = true,
-                         const arma::vec& weight = arma::vec()) :
-            AbclassGroupMCP(x, y, intercept, standardize, weight)
-        {
-        }
-
+        // inherit
+        using AbclassGroupMCP<Logistic, T_x>::AbclassGroupMCP;
 
     };                          // end of class
 

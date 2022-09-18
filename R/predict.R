@@ -20,23 +20,23 @@
 ##' Predict class labels or estimate conditional probabilities for the specified
 ##' new data.
 ##'
-##' @param object An object of class \code{abclass}.
+##' @inheritParams coef.abclass
+##'
 ##' @param newx A numeric matrix representing the design matrix for predictions.
 ##' @param type A character value specifying the desired type of predictions.
 ##'     The available options are \code{"class"} for predicted labels and
 ##'     \code{"probability"} for class conditional probability estimates.
-##' @param selection A character value specifying how to select a particular set
-##'     of coefficient estimates from the entire solution path for the
-##'     predictions.  If the spcified \code{abclass} object contains the
-##'     cross-validation results, one may set \code{selection} to
-##'     \code{"cv_min"} (or \code{"cv_1se"}) for predictions from the set of
-##'     estimates having the smallest cross-validation error (or the set of
+##' @param selection An integer vector for the solution indices or a character
+##'     value specifying how to select a particular set of coefficient estimates
+##'     from the entire solution path for prediction. If the specified
+##'     \code{object} contains the cross-validation results, one may set
+##'     \code{selection} to \code{"cv_min"} (or \code{"cv_1se"}) for using the
+##'     estimates giving the smallest cross-validation error (or the set of
 ##'     estimates resulted from the largest \emph{lambda} within one standard
-##'     error of the smallest cross-validation error).  The predictions for the
-##'     entire solution path will be returned if \code{selection = "all"} or no
-##'     cross-validation results are available in the input \code{abclass}
-##'     object.
-##' @param ... Other arguments not used now.
+##'     error of the smallest cross-validation error) or prediction.  The
+##'     prediction for the entire solution path will be returned in a list if
+##'     \code{selection = "all"} or no cross-validation results are available in
+##'     the specified \code{object}.
 ##'
 ##' @return A vector representing the predictions or a list containing the
 ##'     predictions for each set of estimates along the solution path.
@@ -49,64 +49,146 @@
 predict.abclass <- function(object,
                             newx,
                             type = c("class", "probability"),
-                            selection = c("cv_min", "cv_1se", "all"),
+                            selection = c("cv_1se", "cv_min", "all"),
                             ...)
 {
+    if (missing(newx)) {
+        stop("The 'newx' must be specified.")
+    }
+    is_x_sparse <- FALSE
+    if (inherits(newx, "sparseMatrix")) {
+        is_x_sparse <- TRUE
+    } else if (! is.matrix(newx)) {
+        newx <- as.matrix(newx)
+    }
+    type <- match.arg(type, c("class", "probability"))
+    res_coef <- coef(object, selection = selection)
+    ## determine the internal function to call
+    loss_fun <- gsub("-", "_", object$loss$loss, fixed = TRUE)
+    predict_prob_fun <- sprintf("r_%s_pred_prob", loss_fun)
+    predict_class_fun <- sprintf("r_%s_pred_y", loss_fun)
+    if (is_x_sparse) {
+        predict_prob_fun <- paste0(predict_prob_fun, "_sp")
+        predict_class_fun <- paste0(predict_class_fun, "_sp")
+    }
+    arg_list <- list(x = newx)
+    if (is.matrix(res_coef)) {
+        arg_list$beta <- res_coef
+        out <- switch(
+            type,
+            "class" = {
+                tmp <- do.call(predict_class_fun, arg_list)
+                tmp <- z2cat(as.integer(tmp), object$category)
+                ## names(tmp) <- rownames(newx)
+                tmp
+            },
+            "probability" = {
+                tmp <- do.call(predict_prob_fun, arg_list)
+                colnames(tmp) <- object$category$label
+                ## rownames(tmp) <- rownames(newx)
+                tmp
+            })
+        return(out)
+    }
+    ## else
+    nslice <- dim(res_coef)[3L]
+    ## return
+    switch(
+        type,
+        "class" = {
+            lapply(seq_len(nslice), function(i) {
+                arg_list$beta <- as.matrix(res_coef[, , i])
+                tmp <- do.call(predict_class_fun, arg_list)
+                tmp <- z2cat(as.integer(tmp), object$category)
+                ## names(tmp) <- rownames(newx)
+                tmp
+            })
+        },
+        "probability" = {
+            lapply(seq_len(nslice), function(i) {
+                arg_list$beta <- as.matrix(res_coef[, , i])
+                tmp <- do.call(predict_prob_fun, arg_list)
+                colnames(tmp) <- object$category$label
+                ## rownames(tmp) <- rownames(newx)
+                tmp
+            })
+        }
+    )
+}
+
+
+##' Predictions from A Trained Sup-Norm Classifier
+##'
+##' Predict class labels or estimate conditional probabilities for the specified
+##' new data.
+##'
+##' @inheritParams predict.abclass
+##'
+##' @return A vector representing the predictions or a list containing the
+##'     predictions for each set of estimates.
+##'
+##' @examples
+##' ## see examples of `supclass()`.
+##'
+##' @importFrom stats predict
+##' @export
+predict.supclass <- function(object,
+                             newx,
+                             type = c("class", "probability"),
+                             selection = c("cv_1se", "cv_min", "all"),
+                             ...)
+{
+    type <- match.arg(type, choices = c("class", "probability"))
+    if (object$model %in% c("psvm", "svm") && type == "probability") {
+        stop(sprintf("Probability estimates are not available for '%s' model.",
+                     object$model))
+    }
     if (missing(newx)) {
         stop("The 'newx' must be specified.")
     }
     if (! is.matrix(newx)) {
         newx <- as.matrix(newx)
     }
-    if (object$intercept) {
-        newx <- cbind(1, newx)
+    newx <- cbind(1, newx)
+    ## get coefficient estimates
+    res_coef <- coef(object, selection = selection)
+    if (is.matrix(res_coef)) {
+        xbeta <- newx %*% res_coef
+        out <- switch(
+            type,
+            "class" = {
+                tmp <- apply(xbeta, 1L, which.max)
+                z2cat(as.integer(tmp), object$category, zero_based = FALSE)
+            },
+            "probability" = {
+                exp_xbeta <- exp(xbeta)
+                prob <- exp_xbeta / rowSums(exp_xbeta)
+                colnames(prob) <- object$category$label
+                prob
+            })
+        return(out)
     }
-    type <- match.arg(type, c("class", "probability"))
-    n_slice <- dim(object$coefficients)[3L]
-    ## set the selection index
-    selection <- match.arg(selection, c("cv_min", "cv_1se", "all"))
-    if (! length(object$cross_validation$cv_accuracy) || selection == "all") {
-        selection_idx <- seq_len(n_slice)
-    } else {
-        ## cv_idx_list <- with(object$cross_validation,
-        ##                     select_lambda(cv_accuracy_mean, cv_accuracy_sd))
-        cv_idx_list <- object$cross_validation
-        selection_idx <- cv_idx_list[[selection]]
-    }
-    ## determine the internal function to call
-    loss_fun <- gsub("-", "_", object$loss$loss, fixed = TRUE)
-    predict_prob_fun <- sprintf("rcpp_%s_predict_prob", loss_fun)
-    predict_class_fun <- sprintf("rcpp_%s_predict_y", loss_fun)
-    arg_list <- switch(
-        loss_fun,
-        "logistic" = list(),
-        "boost" = object$loss["boost_umin"],
-        "hinge_boost" = object$loss["lum_c"],
-        "lum" = object$loss[c("lum_a", "lum_c")]
-    )
-    arg_list$x <- newx
-    pred_list <- switch(
+    ## else
+    nslice <- dim(res_coef)[3L]
+    ## return
+    switch(
         type,
         "class" = {
-            lapply(selection_idx, function(i) {
-                arg_list$beta <- as.matrix(object$coefficients[, , i])
-                tmp <- do.call(predict_class_fun, arg_list)
-                z2cat(as.integer(tmp), object$category)
+            lapply(seq_len(nslice), function(i) {
+                beta <- as.matrix(res_coef[, , i])
+                xbeta <- newx %*% beta
+                tmp <- apply(xbeta, 1L, which.max)
+                z2cat(as.integer(tmp), object$category, zero_based = FALSE)
             })
         },
         "probability" = {
-            lapply(selection_idx, function(i) {
-                arg_list$beta <- as.matrix(object$coefficients[, , i])
-                tmp <- do.call(predict_prob_fun, arg_list)
-                colnames(tmp) <- object$category$label
-                rownames(tmp) <- rownames(newx)
-                tmp
+            lapply(seq_len(nslice), function(i) {
+                beta <- as.matrix(res_coef[, , i])
+                exp_xbeta <- exp(newx %*% beta)
+                prob <- exp_xbeta / rowSums(exp_xbeta)
+                colnames(prob) <- object$category$label
+                prob
             })
         }
     )
-    ## return
-    if (length(pred_list) == 1L) {
-        return(pred_list[[1L]])
-    }
-    pred_list
 }

@@ -16,14 +16,29 @@
 //
 
 #include <RcppArmadillo.h>
-#include <abclass.h>
+#include <abclass/HingeBoostGroupMCP.h>
 #include "export-helpers.h"
 
+template <typename T>
+Rcpp::List hinge_boost_gmcp(
+    const T& x,
+    const arma::uvec& y,
+    const abclass::Control& control,
+    const bool main_fit,
+    const double lum_c
+    )
+{
+    abclass::HingeBoostGroupMCP<T> object { x, y, control };
+    object.loss_.set_c(lum_c);
+    return template_fit(object, main_fit);
+}
+
 // [[Rcpp::export]]
-Rcpp::List rcpp_hinge_boost_group_mcp(
+Rcpp::List r_hinge_boost_gmcp(
     const arma::mat& x,
     const arma::uvec& y,
     const arma::vec& lambda,
+    const double alpha,
     const unsigned int nlambda,
     const double lambda_min_ratio,
     const arma::vec& group_weight,
@@ -31,32 +46,63 @@ Rcpp::List rcpp_hinge_boost_group_mcp(
     const arma::vec& weight,
     const bool intercept = true,
     const bool standardize = true,
-    const unsigned int nfolds = 0,
-    const bool stratified_cv = true,
-    const unsigned int alignment = 0,
     const unsigned int maxit = 1e5,
     const double epsilon = 1e-3,
     const bool varying_active_set = true,
-    const double lum_c = 0.0,
-    const unsigned int verbose = 0
+    const unsigned int verbose = 0,
+    const unsigned int nfolds = 0,
+    const bool stratified = true,
+    const unsigned int alignment = 0,
+    const unsigned int nstages = 0,
+    const bool main_fit = true,
+    const double lum_c = 0.0
     )
 {
-    abclass::HingeBoostGroupMCP object {
-        x, y, intercept, standardize, weight
-    };
-    object.set_lum_c(lum_c);
-    return abclass_group_ncv_fit(object,
-                                 y,
-                                 lambda,
-                                 nlambda,
-                                 lambda_min_ratio,
-                                 group_weight,
-                                 dgamma,
-                                 nfolds,
-                                 stratified_cv,
-                                 alignment,
-                                 maxit,
-                                 epsilon,
-                                 varying_active_set,
-                                 verbose);
+    abclass::Control control { maxit, epsilon, standardize, verbose };
+    control.set_intercept(intercept)->
+        set_weight(weight)->
+        reg_path(nlambda, lambda_min_ratio, varying_active_set)->
+        reg_path(lambda)->
+        reg_net(alpha)->
+        reg_group(group_weight, dgamma)->
+        tune_cv(nfolds, stratified, alignment)->
+        tune_et(nstages);
+    return hinge_boost_gmcp<arma::mat>(x, y, control, main_fit, lum_c);
+}
+
+// [[Rcpp::export]]
+Rcpp::List r_hinge_boost_gmcp_sp(
+    const arma::sp_mat& x,
+    const arma::uvec& y,
+    const arma::vec& lambda,
+    const double alpha,
+    const unsigned int nlambda,
+    const double lambda_min_ratio,
+    const arma::vec& group_weight,
+    const double dgamma,
+    const arma::vec& weight,
+    const bool intercept = true,
+    const bool standardize = true,
+    const unsigned int maxit = 1e5,
+    const double epsilon = 1e-3,
+    const bool varying_active_set = true,
+    const unsigned int verbose = 0,
+    const unsigned int nfolds = 0,
+    const bool stratified = true,
+    const unsigned int alignment = 0,
+    const unsigned int nstages = 0,
+    const bool main_fit = true,
+    const double lum_c = 0.0
+    )
+{
+    abclass::Control control { maxit, epsilon, standardize, verbose };
+    control.set_intercept(intercept)->
+        set_weight(weight)->
+        reg_path(nlambda, lambda_min_ratio, varying_active_set)->
+        reg_path(lambda)->
+        reg_net(alpha)->
+        reg_group(group_weight, dgamma)->
+        tune_cv(nfolds, stratified, alignment)->
+        tune_et(nstages);
+    return hinge_boost_gmcp<arma::sp_mat>(x, y, control, main_fit, lum_c);
 }
