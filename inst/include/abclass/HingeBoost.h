@@ -1,6 +1,6 @@
 //
 // R package abclass developed by Wenjie Wang <wang@wwenjie.org>
-// Copyright (C) 2021-2022 Eli Lilly and Company
+// Copyright (C) 2021-2025 Eli Lilly and Company
 //
 // This file is part of the R package abclass.
 //
@@ -20,12 +20,13 @@
 
 #include <RcppArmadillo.h>
 #include <stdexcept>
+#include "MarginLoss.h"
 #include "utils.h"
 
 namespace abclass
 {
 
-    class HingeBoost
+    class HingeBoost : public MarginLoss
     {
     private:
         // cache
@@ -33,9 +34,11 @@ namespace abclass
         double lum_c_cp1_;
 
     protected:
-        double lum_c_ = 0.0;
+        double lum_c_ { 0.0 };
 
     public:
+        using MarginLoss::loss;
+
         HingeBoost()
         {
             set_c(0.0);
@@ -47,48 +50,27 @@ namespace abclass
         }
 
         // loss function
-        inline double loss(const arma::vec& u,
-                           const arma::vec& obs_weight) const
+        inline double loss(const double u) const override
         {
-            arma::vec tmp { arma::zeros(u.n_elem) };
-            for (size_t i {0}; i < u.n_elem; ++i) {
-                if (u[i] < lum_c_cp1_) {
-                    tmp[i] = 1.0 - u[i];
-                } else {
-                    tmp[i] = std::exp(- (lum_cp1_ * u[i] - lum_c_)) /
-                        lum_cp1_;
-                }
+            if (u < lum_c_cp1_) {
+                return 1.0 - u;
             }
-            return arma::mean(obs_weight % tmp);
+            return std::exp(- (lum_cp1_ * u - lum_c_)) / lum_cp1_;
         }
 
         // the first derivative of the loss function
-        inline arma::vec dloss(const arma::vec& u) const
+        inline double dloss_du(const double u) const override
         {
-            arma::vec out { - arma::ones(u.n_elem) };
-            for (size_t i {0}; i < u.n_elem; ++i) {
-                if (u[i] > lum_c_cp1_) {
-                    out[i] = - std::exp(- (lum_cp1_ * u[i] - lum_c_));
-                }
+            if (u < lum_c_cp1_) {
+                return - 1.0;
             }
-            return out;
+            return - std::exp(- (lum_cp1_ * u - lum_c_));
         }
 
-        // MM lowerbound
-        template <typename T>
-        inline arma::rowvec mm_lowerbound(const T& x,
-                                          const arma::vec& obs_weight)
+        // MM lowerbound factor
+        inline double mm_lowerbound() const
         {
-            T sqx { arma::square(x) };
-            double dn_obs { static_cast<double>(x.n_rows) };
-            return lum_cp1_ * (obs_weight.t() * sqx) / dn_obs;
-
-        }
-        // for the intercept
-        inline double mm_lowerbound(const double dn_obs,
-                                    const arma::vec& obs_weight)
-        {
-            return lum_cp1_ * arma::accu(obs_weight) / dn_obs;
+            return lum_cp1_;
         }
 
         // setter
@@ -99,7 +81,7 @@ namespace abclass
             }
             lum_c_ = lum_c;
             lum_cp1_ = lum_c + 1.0;
-            lum_c_cp1_ = lum_c_ / lum_cp1_;
+            lum_c_cp1_ = 1.0 - 1.0 / lum_cp1_;
             return this;
         }
 

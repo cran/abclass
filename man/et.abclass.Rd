@@ -7,12 +7,17 @@
 et.abclass(
   x,
   y,
+  loss = c("logistic", "boost", "hinge.boost", "lum"),
+  penalty = c("glasso", "lasso"),
+  weights = NULL,
+  offset = NULL,
   intercept = TRUE,
-  weight = NULL,
-  loss = c("logistic", "boost", "hinge-boost", "lum"),
   control = list(),
-  nstages = 2,
-  refit = list(lambda = 1e-06),
+  nstages = 2L,
+  nfolds = 0L,
+  stratified = TRUE,
+  alignment = c("fraction", "lambda"),
+  refit = FALSE,
   ...
 )
 }
@@ -26,19 +31,24 @@ to include an intercept term instead of adding an all-one column to
 \item{y}{An integer vector, a character vector, or a factor vector
 representing the response label.}
 
-\item{intercept}{A logical value indicating if an intercept should be
-considered in the model.  The default value is \code{TRUE} and the
-intercept is excluded from regularization.}
-
-\item{weight}{A numeric vector for nonnegative observation weights. Equal
-observation weights are used by default.}
-
 \item{loss}{A character value specifying the loss function.  The available
 options are \code{"logistic"} for the logistic deviance loss,
 \code{"boost"} for the exponential loss approximating Boosting machines,
-\code{"hinge-boost"} for hybrid of SVM and AdaBoost machine, and
+\code{"hinge.boost"} for hybrid of SVM and AdaBoost machine, and
 \code{"lum"} for largin-margin unified machines (LUM).  See Liu, et
 al. (2011) for details.}
+
+\item{penalty}{A character vector specifying the name of the penalty.}
+
+\item{weights}{A numeric vector for nonnegative observation weights. Equal
+observation weights are used by default.}
+
+\item{offset}{An optional numeric matrix for offsets of the decision
+functions.}
+
+\item{intercept}{A logical value indicating if an intercept should be
+considered in the model.  The default value is \code{TRUE} and the
+intercept is excluded from regularization.}
 
 \item{control}{A list of control parameters. See \code{abclass.control()}
 for details.}
@@ -47,16 +57,45 @@ for details.}
 ET-Lasso procedure.  By default, two rounds of tuning by random
 permutations will be performed as suggested in Yang, et al. (2019).}
 
+\item{nfolds}{A positive integer specifying the number of folds for
+cross-validation.  Five-folds cross-validation will be used by default.
+An error will be thrown out if the \code{nfolds} is specified to be less
+than 2.}
+
+\item{stratified}{A logical value indicating if the cross-validation
+procedure should be stratified by the response label. The default value
+is \code{TRUE} to ensure the same number of categories be used in
+validation and training.}
+
+\item{alignment}{A character vector specifying how to align the lambda
+sequence used in the main fit with the cross-validation fits.  The
+available options are \code{"fraction"} for allowing cross-validation
+fits to have their own lambda sequences and \code{"lambda"} for using
+the same lambda sequence of the main fit.  The option \code{"lambda"}
+will be applied if a meaningful \code{lambda} is specified.  The default
+value is \code{"fraction"}.}
+
 \item{refit}{A logical value indicating if a new classifier should be
-trained using the selected predictors.  This argument can also be a list
-with named elements, which will be passed to \code{abclass.control()} to
-specify how the new classifier should be trained.}
+trained using the selected predictors or a named list that will be
+passed to \code{abclass.control()} to specify how the new classifier
+should be trained.}
 
 \item{...}{Other control parameters passed to \code{abclass.control()}.}
+}
+\value{
+An S3 object of class \code{et.abclass} and \code{abclass}.
 }
 \description{
 Tune the regularization parameter for an angle-based large-margin classifier
 by the ET-Lasso method (Yang, et al., 2019).
+}
+\details{
+The ET-Lasso procedure is intended for tuning the \code{lambda} parameter
+solely.  The arguments regarding cross-validation, \code{nfolds},
+\code{stratified}, and \code{alignment}, allow one to estimate the
+prediction accuracy by cross-validation for the model estimates resulted
+from the ET-Lasso procedure, which can be helpful for one to choose other
+tuning parameters (e.g., \code{alpha}).
 }
 \references{
 Yang, S., Wen, J., Zhan, X., & Kifer, D. (2019). ET-Lasso: A new efficient

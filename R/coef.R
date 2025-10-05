@@ -1,6 +1,6 @@
 ##
 ## R package abclass developed by Wenjie Wang <wang@wwenjie.org>
-## Copyright (C) 2021-2022 Eli Lilly and Company
+## Copyright (C) 2021-2025 Eli Lilly and Company
 ##
 ## This file is part of the R package abclass.
 ##
@@ -45,14 +45,15 @@ coef.abclass <- function(object,
                          selection = c("cv_1se", "cv_min", "all"),
                          ...)
 {
+    ## note: drop the dimension unless 'all' or multiple selected
     if (! (is.null(object$refit) || isFALSE(object$refit))) {
         tmp <- object$refit
         nlambda <- tmp$coefficients
-        p <- nrow(object$coefficients) - as.integer(object$intercept)
+        p <- nrow(object$coefficients) - as.integer(object$specs$intercept)
         dk <- dim(tmp$coefficients)[3L]
         coef_arr <- array(0, dim = c(dim(object$coefficients)[seq_len(2)], dk))
         idx <- object$refit$selected_coef
-        if (object$intercept) {
+        if (object$specs$intercept) {
             idx <- c(1L, idx + 1L)
         }
         for (k in seq_len(dk)) {
@@ -62,7 +63,7 @@ coef.abclass <- function(object,
         return(coef.abclass(tmp, selection = selection, ...))
     }
     if (inherits(object, "et.abclass")) { # refit must be FALSE here
-        return(object$coefficients)
+        return(object$coefficients[, , 1L, drop = TRUE])
     }
     ## if only one solution
     dim_coef <- dim(object$coefficients)
@@ -77,9 +78,11 @@ coef.abclass <- function(object,
     if (is.numeric(selection)) {
         selection <- as.integer(selection)
         if (any(selection > dk)) {
-            stop(sprintf("The integer 'selection' must <= %d.", dk))
+            stop(sprintf("The 'selection' index must be <= %d.", dk))
         }
-        return(object$coefficients[, , selection])
+        ## do not drop dimension if multiple idx for binary classification
+        return(object$coefficients[, , selection,
+                                   drop = length(selection) == 1])
     }
     selection <- match.arg(selection, c("cv_1se", "cv_min", "all"))
     if (! length(object$cross_validation$cv_accuracy) || selection == "all") {
@@ -87,7 +90,7 @@ coef.abclass <- function(object,
     }
     cv_idx_list <- object$cross_validation
     selection_idx <- cv_idx_list[[selection]]
-    object$coefficients[, , selection_idx]
+    object$coefficients[, , selection_idx, drop = TRUE]
 }
 
 
@@ -121,6 +124,7 @@ coef.supclass <- function(object,
                           selection = c("cv_1se", "cv_min", "all"),
                           ...)
 {
+    ## note: drop the dimension unless 'all' or multiple selected
     ## if only one solution
     dim_coef <- dim(object$coefficients)
     dk <- dim_coef[3L]
@@ -134,9 +138,9 @@ coef.supclass <- function(object,
     if (is.numeric(selection)) {
         selection <- as.integer(selection)
         if (any(selection > dk)) {
-            stop(sprintf("The integer 'selection' must <= %d.", dk))
+            stop(sprintf("The 'selection' index must be <= %d.", dk))
         }
-        return(object$coefficients[, , selection])
+        return(object$coefficients[, , selection, drop = TRUE])
     }
     selection <- match.arg(selection, c("cv_1se", "cv_min", "all"))
     ## BIC for logistic model
@@ -150,5 +154,5 @@ coef.supclass <- function(object,
     }
     cv_idx_list <- object$cross_validation
     selection_idx <- cv_idx_list[[selection]]
-    object$coefficients[, , selection_idx]
+    object$coefficients[, , selection_idx, drop = TRUE]
 }

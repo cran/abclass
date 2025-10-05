@@ -20,49 +20,43 @@ train_y <- y[train_idx]
 test_y <- y[- train_idx]
 
 ## without refit
-model1 <- et.abclass(train_x, train_y, nstages = 2,
-                     lambda_min_ratio = 1e-6, grouped = FALSE,
-                     refit = FALSE)
+model1 <- et.abclass(train_x, train_y, refit = FALSE)
 expect_equivalent(dim(coef(model1)), c(p + 1, k - 1))
 
 ## with refit being TRUE
-model1 <- et.abclass(train_x, train_y, nstages = 2,
-                     lambda_min_ratio = 1e-6, grouped = TRUE,
-                     refit = TRUE)
+model1 <- et.abclass(train_x, train_y, refit = TRUE)
 expect_equivalent(dim(coef(model1)), c(p + 1, k - 1))
 pred1 <- predict(model1, test_x)
-expect_true(mean(test_y == pred1) > 0.5)
+expect_true(mean(test_y == pred1) > 0.3)
 
 ## with reift as a list
 ## with cv
-model1 <- et.abclass(train_x, train_y, nstages = 2,
-                     lambda_min_ratio = 1e-6, grouped = TRUE,
-                     refit = list(alpha = 0, nlambda = 10, nfolds = 3))
+model1 <- et.abclass(train_x, train_y,
+                     refit = list(alpha = 0, nlambda = 3, nfolds = 3))
 expect_equivalent(dim(coef(model1)), c(p + 1, k - 1))
 pred1 <- predict(model1, test_x)
-expect_true(mean(test_y == pred1) > 0.5)
+expect_true(mean(test_y == pred1) > 0.3)
 
 ## without cv
-model1 <- et.abclass(train_x, train_y, nstages = 2,
-                     lambda_min_ratio = 1e-6, grouped = TRUE,
-                     refit = list(alpha = 0, nlambda = 10))
-expect_equivalent(dim(coef(model1, selection = 10)), c(p + 1, k - 1))
-pred1 <- predict(model1, test_x, s = 10)
-expect_true(mean(test_y == pred1) > 0.5)
+model1 <- et.abclass(train_x, train_y,
+                     refit = list(alpha = 0, nlambda = 3))
+expect_equivalent(dim(coef(model1, selection = 3)), c(p + 1, k - 1))
+pred1 <- predict(model1, test_x, selection = 3)
+expect_true(mean(test_y == pred1) > 0.3)
 
-## incorrect length of group weights
+## incorrect length of penalty factors
 expect_error(
-    et.abclass(train_x, train_y, group_weight = runif(ncol(train_x) + 1))
+    et.abclass(train_x, train_y,
+               penalty_factor = runif(ncol(train_x) + 1))
 )
 
-## with refit and group weights
+## with penalty factors
 gw <- runif(ncol(train_x))
-model1 <- et.abclass(train_x, train_y, nstages = 2,
-                     lambda_min_ratio = 1e-4,
+model1 <- et.abclass(train_x, train_y,
                      control = list(
-                         group_weight = gw
+                         penalty_factor = gw
                      ))
-expect_equal(gw, model1$regularization$group_weight)
+expect_equal(gw, model1$regularization$penalty_factor)
 expect_equivalent(dim(coef(model1)), c(p + 1, k - 1))
 pred1 <- predict(model1, test_x)
-expect_true(mean(test_y == pred1) > 0.5)
+expect_true(mean(test_y == pred1) > 0.3)

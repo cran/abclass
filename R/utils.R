@@ -1,6 +1,6 @@
 ##
 ## R package abclass developed by Wenjie Wang <wang@wwenjie.org>
-## Copyright (C) 2021-2022 Eli Lilly and Company
+## Copyright (C) 2021-2025 Eli Lilly and Company
 ##
 ## This file is part of the R package abclass.
 ##
@@ -46,6 +46,14 @@ null2num0 <- function(x) {
 null2mat0 <- function(x) {
     if (is.null(x)) {
         return(matrix(numeric(0)))
+    }
+    as.matrix(x)
+}
+
+## return 0 if null, x otherwise
+null0 <- function(x) {
+    if (is.null(x)) {
+        return(0)
     }
     x
 }

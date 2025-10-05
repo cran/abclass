@@ -1,6 +1,6 @@
 //
 // R package abclass developed by Wenjie Wang <wang@wwenjie.org>
-// Copyright (C) 2021-2022 Eli Lilly and Company
+// Copyright (C) 2021-2025 Eli Lilly and Company
 //
 // This file is part of the R package abclass.
 //
@@ -119,6 +119,14 @@ namespace abclass {
         }
         return 0.0;
     }
+    inline arma::vec sign(const arma::vec& x)
+    {
+        arma::vec res { arma::zeros(x.n_elem) };
+        for (size_t i {0}; i < x.n_elem; ++i) {
+            res[i] = sign(x[i]);
+        }
+        return res;
+    }
 
     // soft-thresholding operator
     inline double soft_threshold(const double beta, const double lambda)
@@ -178,6 +186,12 @@ namespace abclass {
         msg(m2...);
     }
 
+    // compute a * b for sake of numerical stability
+    inline double exp_log_sum(const double a, const double b)
+    {
+        return std::exp(std::log(a) + std::log(b));
+    }
+
     // FIXME select rows: remedy for sparse matrices
     inline arma::mat subset_rows(const arma::mat& mat,
                                  const arma::uvec& row_index)
@@ -197,6 +211,47 @@ namespace abclass {
     {
         arma::rowvec out { arma::var(mat, 1) };
         return arma::sqrt(out);
+    }
+
+    // MCP penalty function for theta >= 0
+    inline double mcp_penalty(const double theta,
+                              const double lambda,
+                              const double gamma)
+    {
+        if (theta < gamma * lambda) {
+            return theta * (lambda - 0.5 * theta / gamma);
+        }
+        return 0.5 * gamma * lambda * lambda;
+    }
+    // first derivative of MCP (wrt theta) for theta >= 0
+    inline double dmcp_penalty(const double theta,
+                               const double lambda,
+                               const double gamma)
+    {
+        // const double numer { gamam * lambda - theta};
+        const double numer { lambda - theta / gamma };
+        if (numer > 0) {
+            // return numer / gamma;
+            return numer;
+        }
+        return 0.0;
+    }
+
+    // exponential penalty function (for theta >= 0)
+    inline double exp_penalty(const double theta,
+                              const double lambda,
+                              const double tau)
+    {
+        return std::pow(lambda, 2) / tau *
+            (1 - std::exp(- tau * theta / lambda));
+    }
+    // first derivative of exponential penalty (wrt theta)
+    // assume lambda > 0
+    inline double dexp_penalty(const double theta,
+                               const double lambda,
+                               const double tau)
+    {
+        return lambda * std::exp(- theta * tau / lambda);
     }
 
 }

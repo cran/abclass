@@ -1,6 +1,6 @@
 ##
 ## R package abclass developed by Wenjie Wang <wang@wwenjie.org>
-## Copyright (C) 2021-2022 Eli Lilly and Company
+## Copyright (C) 2021-2025 Eli Lilly and Company
 ##
 ## This file is part of the R package abclass.
 ##
@@ -37,17 +37,20 @@
 ##'     the same lambda sequence of the main fit.  The option \code{"lambda"}
 ##'     will be applied if a meaningful \code{lambda} is specified.  The default
 ##'     value is \code{"fraction"}.
-##' @param refit A logical value or a named list specifying if and how a refit
-##'     for those selected predictors should be performed.  The default valie is
-##'     \code{FALSE}.
+##' @param refit A logical value indicating if a new classifier should be
+##'     trained using the selected predictors or a named list that will be
+##'     passed to \code{abclass.control()} to specify how the new classifier
+##'     should be trained.
 ##'
-##' @return An S3 object of class \code{cv.abclass}.
+##' @return An S3 object of class \code{cv.abclass} and \code{abclass}.
 ##'
 ##' @export
 cv.abclass <- function(x, y,
+                       loss = c("logistic", "boost", "hinge.boost", "lum"),
+                       penalty = c("glasso", "lasso"),
+                       weights = NULL,
+                       offset = NULL,
                        intercept = TRUE,
-                       weight = NULL,
-                       loss = c("logistic", "boost", "hinge-boost", "lum"),
                        control = list(),
                        nfolds = 5L,
                        stratified = TRUE,
@@ -55,43 +58,32 @@ cv.abclass <- function(x, y,
                        refit = FALSE,
                        ...)
 {
+    loss <- match.arg(as.character(loss)[1],
+                      choices = .all_abclass_losses)
+    penalty <- match.arg(as.character(penalty)[1],
+                         choices = .all_abclass_penalties)
     ## nfolds
     nfolds <- as.integer(nfolds)
     if (nfolds < 3L) {
         stop("The 'nfolds' must be > 2.")
     }
-    ## alignment
-    if (is.numeric(alignment)) {
-        alignment <- as.integer(alignment[1L])
-    } else {
-        all_alignment <- c("fraction", "lambda")
-        alignment <- match.arg(alignment, choices = all_alignment)
-        alignment <- match(alignment, all_alignment) - 1L
-    }
-    ## loss
-    all_loss <- c("logistic", "boost", "hinge-boost", "lum")
-    loss <- match.arg(loss, choices = all_loss)
-    loss2 <- gsub("-", "_", loss, fixed = TRUE)
     ## controls
     dot_list <- list(...)
     control <- do.call(abclass.control, modify_list(control, dot_list))
     ## prepare arguments
-    args_to_call <- c(
-        list(x = x,
-             y = y,
-             intercept = intercept,
-             weight = null2num0(weight),
-             loss = loss2,
-             nfolds = nfolds,
-             stratified = stratified,
-             alignment = alignment,
-             main_fit = TRUE),
-        control
+    res <- .abclass(
+        x = x,
+        y = y,
+        loss = loss,
+        penalty = penalty,
+        weights = weights,
+        offset = offset,
+        intercept = intercept,
+        control = control,
+        nfolds = nfolds,
+        stratified = stratified,
+        alignment = alignment
     )
-    args_to_call <- args_to_call[
-        names(args_to_call) %in% formal_names(.abclass)
-    ]
-    res <- do.call(.abclass, args_to_call)
     ## add cv idx
     cv_idx_list <- with(res$cross_validation,
                         select_lambda(cv_accuracy_mean, cv_accuracy_sd))
@@ -105,26 +97,25 @@ cv.abclass <- function(x, y,
         ## TODO allow selection of min and 1se
         coef_idx <- res$cross_validation$cv_1se
         idx <- which(apply(res$coefficients[- 1, , coef_idx] > 0, 1, any))
-        ## inherit the group weights for those selected predictors
-        if (! is.null(res$regularization$group_weight)) {
-            refit$group_weight <- res$regularization$group_weight[idx]
+        ## inherit the penalty factors for those selected predictors
+        if (! is.null(res$regularization$penalty_factor)) {
+            refit$penalty_factor <- res$regularization$penalty_factor[idx]
         }
         refit_control <- modify_list(control, refit)
-        args_to_call <- c(
-            list(x = x[, idx, drop = FALSE],
-                 y = y,
-                 ## assume intercept, weight, loss are the same with et-lasso
-                 intercept = intercept,
-                 weight = res$weight,
-                 loss = loss2,
-                 nstages = 0,
-                 main_fit = TRUE),
-            refit_control
+        refit_res <- .abclass(
+            x = x[, idx, drop = FALSE],
+            y = y,
+            ## assume intercept, weights, loss are the same with
+            loss = loss,
+            penalty = penalty,
+            weights = weights,
+            offset = offset,
+            intercept = intercept,
+            control = refit_control,
+            nfolds = null0(refit$nfolds),
+            stratified = ! isFALSE(refit$straitified),
+            nstages = null0(refit$nstages)
         )
-        args_to_call <- args_to_call[
-            names(args_to_call) %in% formal_names(.abclass)
-        ]
-        refit_res <- do.call(.abclass, args_to_call)
         if (! is.null(refit_res$cross_validation)) {
             ## add cv idx
             cv_idx_list <- with(refit_res$cross_validation,
@@ -133,19 +124,15 @@ cv.abclass <- function(x, y,
                                             cv_idx_list)
         }
         res$refit <- refit_res[
-            ! names(refit_res) %in% c("intercept", "weight", "loss", "category")
+            ! names(refit_res) %in%
+            c("category", "loss", "penalty", "weights", "offset", "intercept")
         ]
         res$refit$selected_coef <- idx
     } else {
         res$refit <- FALSE
     }
     ## add class
-    class_suffix <- if (control$grouped)
-                        paste0("_group_", control$group_penalty)
-                    else
-                        "_net"
-    res_cls <- paste0(loss2, class_suffix)
-    class(res) <- c(res_cls, "cv.abclass", "abclass")
+    class(res) <- c("cv.abclass", "abclass")
     ## return
     res
 }

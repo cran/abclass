@@ -1,6 +1,6 @@
 //
 // R package abclass developed by Wenjie Wang <wang@wwenjie.org>
-// Copyright (C) 2021-2022 Eli Lilly and Company
+// Copyright (C) 2021-2025 Eli Lilly and Company
 //
 // This file is part of the R package abclass.
 //
@@ -20,12 +20,13 @@
 
 #include <RcppArmadillo.h>
 #include <stdexcept>
+#include "MarginLoss.h"
 #include "utils.h"
 
 namespace abclass
 {
 
-    class Lum
+    class Lum : public MarginLoss
     {
     private:
         // cache
@@ -36,12 +37,17 @@ namespace abclass
         double lum_log_cp1_;    // log(c + 1)
         double lum_c_cp1_;      // c / (c + 1)
         double lum_amc_;        // a - c
+        double lum_mm_;         // (a + 1)(c + 1) / a
+        double lum_loss_const_; // - log(c + 1) + a log(a)
+        double lum_d1_const_;   // (a + 1) log(a)
 
     protected:
-        double lum_c_ = 0.0;    // c
-        double lum_a_ = 1.0;    // a
+        double lum_c_ { 0.0 };  // c
+        double lum_a_ { 1.0 };  // a
 
     public:
+        using MarginLoss::loss;
+
         Lum()
         {
             set_ac(1.0, 0.0);
@@ -53,55 +59,29 @@ namespace abclass
         }
 
         // loss function
-        inline double loss(const arma::vec& u,
-                           const arma::vec& obs_weight) const
+        inline double loss(const double u) const override
         {
-            arma::vec tmp { arma::zeros(u.n_elem) };
-            for (size_t i {0}; i < u.n_elem; ++i) {
-                if (u[i] < lum_c_cp1_) {
-                    tmp[i] = 1.0 - u[i];
-                } else {
-                    tmp[i] = std::exp(
-                        - lum_log_cp1_ + lum_a_log_a_ -
-                        lum_a_ * std::log(lum_cp1_ * u[i] + lum_amc_)
-                        );
-                }
+            if (u < lum_c_cp1_) {
+                return 1.0 - u;
             }
-            return arma::mean(obs_weight % tmp);
+            return std::exp(lum_loss_const_ -
+                            lum_a_ * std::log(lum_cp1_ * u + lum_amc_));
         }
 
         // the first derivative of the loss function
-        inline arma::vec dloss(const arma::vec& u) const
+        inline double dloss_du(const double u) const override
         {
-            arma::vec out { - arma::ones(u.n_elem) };
-            for (size_t i {0}; i < u.n_elem; ++i) {
-                if (u[i] > lum_c_cp1_) {
-                    out[i] = - std::exp(
-                        lum_a_log_a_ + lum_log_a_ -
-                        lum_ap1_ * std::log(lum_cp1_ * u[i] + lum_amc_)
-                        );
-                }
+            if (u < lum_c_cp1_) {
+                return - 1.0;
             }
-            return out;
+            return - std::exp(lum_d1_const_ -
+                              lum_ap1_ * std::log(lum_cp1_ * u + lum_amc_));
         }
 
-        // MM lowerbound
-        template <typename T>
-        inline arma::rowvec mm_lowerbound(const T& x,
-                                          const arma::vec& obs_weight)
+        // MM lowerbound factor
+        inline double mm_lowerbound() const
         {
-            double tmp { lum_ap1_ / lum_a_ * lum_cp1_ };
-            T sqx { arma::square(x) };
-            double dn_obs { static_cast<double>(x.n_rows) };
-            return tmp * (obs_weight.t() * sqx) / dn_obs;
-
-        }
-        // for the intercept
-        inline double mm_lowerbound(const double dn_obs,
-                                    const arma::vec& obs_weight)
-        {
-            double tmp { lum_ap1_ / lum_a_ * lum_cp1_ };
-            return tmp * arma::accu(obs_weight) / dn_obs;
+            return lum_mm_;
         }
 
         inline Lum* set_ac(const double lum_a, const double lum_c)
@@ -109,18 +89,21 @@ namespace abclass
             if (is_le(lum_a, 0.0)) {
                 throw std::range_error("The LUM 'a' must be positive.");
             }
+            if (is_lt(lum_c, 0.0)) {
+                throw std::range_error("The LUM 'c' cannot be negative.");
+            }
             lum_a_ = lum_a;
             lum_ap1_ = lum_a_ + 1.0;
             lum_log_a_ = std::log(lum_a_);
             lum_a_log_a_ = lum_a_ * lum_log_a_;
-            if (is_lt(lum_c, 0.0)) {
-                throw std::range_error("The LUM 'c' cannot be negative.");
-            }
             lum_c_ = lum_c;
             lum_cp1_ = lum_c + 1.0;
             lum_log_cp1_ = std::log(lum_cp1_);
-            lum_c_cp1_ = lum_c_ / lum_cp1_;
+            lum_c_cp1_ = 1.0 - 1.0 / lum_cp1_;
             lum_amc_ = lum_a_ - lum_c_;
+            lum_mm_ = lum_ap1_ / lum_a_ * lum_cp1_;
+            lum_loss_const_ = - lum_log_cp1_ + lum_a_log_a_;
+            lum_d1_const_ = lum_a_log_a_ + lum_log_a_;
             return this;
         }
 

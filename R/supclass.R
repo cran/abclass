@@ -1,6 +1,6 @@
 ##
 ## R package abclass developed by Wenjie Wang <wang@wwenjie.org>
-## Copyright (C) 2021-2022 Eli Lilly and Company
+## Copyright (C) 2021-2025 Eli Lilly and Company
 ##
 ## This file is part of the R package abclass.
 ##
@@ -21,10 +21,11 @@
 ##' penalties proposed by Zhang, et al. (2008) and Li & Zhang (2021).
 ##'
 ##' For the multinomial logistic model or the proximal SVM model, this function
-##' utilizes the function \code{quadprog::solve.QP()} to solve the equivalent
-##' quadratic problem; For the multi-class SVM, this function utilizes GNU GLPK
-##' to solve the equivalent linear programming problem via the package {Rglpk}.
-##' It is recommended to use a recent version of {GLPK}.
+##' utilizes the function \code{qpmadr::solveqp()} to solve the equivalent
+##' quadratic problem.  For the multi-class SVM, this function utilizes GNU
+##' Linear Programming Kit (GLPK) to solve the equivalent linear programming
+##' problem via the package \pkg{Rglpk}.  It is recommended to use a recent
+##' version of \pkg{GLPK}.
 ##'
 ##' @inheritParams abclass
 ##'
@@ -52,6 +53,8 @@
 ##' multi-classification. \emph{Journal of Data Science}, 19(1), 56--74.
 ##'
 ##' @example inst/examples/ex-supclass.R
+##'
+##' @importFrom stats runif
 ##'
 ##' @export
 supclass <- function(x, y,
@@ -125,8 +128,13 @@ supclass <- function(x, y,
     }
     ## check start
     if (is.null(start)) {
-        ## TODO apply ridge estimates instead of zeros
-        start <- matrix(0, nrow = pp, ncol = K)
+        start <- if (is.na(control$ridge_lambda)) {
+                     matrix(0, nrow = pp, ncol = K)
+                 } else {
+                     ## TODO apply ridge estimates instead of zeros
+                     warning("Not implemented; using random starts instead.")
+                     matrix(stats::runif(pp * K), nrow = pp, ncol = K)
+                 }
     } else {
         if (! is.matrix(start)) {
             start <- as.matrix(start)
@@ -167,7 +175,7 @@ supclass <- function(x, y,
                  c("lambda", "scad_a")
              }
     ctrls <- c("maxit", "epsilon", "shrinkage", "warm_start",
-               "standardize", "verbose")
+               "standardize", "Rglpk")
     structure(list(
         coefficients = beta,
         category = cat_y,
@@ -175,7 +183,7 @@ supclass <- function(x, y,
         regularization = control[regus],
         start = start,
         control = control[ctrls]
-    ), class = c(sprintf("%s_sup%s", model, penalty), "supclass"))
+    ), class = c(sprintf("supclass_%s_%s", model, penalty), "supclass"))
 }
 
 
@@ -202,16 +210,17 @@ supclass <- function(x, y,
 ##'     The default value is \code{50} as suggested in Li & Zhang (2021).
 ##' @param shrinkage A nonnegative tolerance to shrink estimates with sup-norm
 ##'     close enough to zero (within the specified tolerance) to zeros.  The
-##'     default value is \code{1e-4}.  ## @param ridge_lambda The tuning
-##'     parameter lambda of the ridge penalty used to ## set the (first set of)
-##'     starting values.
+##'     default value is \code{1e-4}.
+##' @param ridge_lambda The tuning parameter lambda of the ridge penalty used to
+##'     set the starting values for multinomial logistic models.
 ##' @param warm_start A logical value indicating if the estimates from last
 ##'     lambda should be used as the starting values for the next lambda.  If
 ##'     \code{FALSE}, the user-specified starting values will be used instead.
 ##' @param standardize A logical value indicating if a standardization procedure
 ##'     should be performed so that each column of the design matrix has mean
 ##'     zero and standardization
-##'
+##' @param Rglpk A named list that consists of control parameters passed to
+##'     \code{Rglpk_solve_LP()}.
 ##' @export
 supclass.control <- function(lambda = 0.1,
                              adaptive_weight = NULL,
@@ -219,10 +228,13 @@ supclass.control <- function(lambda = 0.1,
                              maxit = 50,
                              epsilon = 1e-4,
                              shrinkage = 1e-4,
-                             ## ridge_lambda = 1e-4,
+                             ridge_lambda = NA,
                              warm_start = TRUE,
                              standardize = TRUE,
-                             verbose = 0L,
+                             Rglpk = list(
+                                 verbose = TRUE,
+                                 tm_limit = 6e5
+                             ),
                              ...)
 {
     structure(list(
@@ -232,9 +244,10 @@ supclass.control <- function(lambda = 0.1,
         maxit = maxit,
         epsilon = epsilon,
         shrinkage = shrinkage,
+        ridge_lambda = ridge_lambda,
         warm_start = warm_start,
         standardize = standardize,
-        verbose = verbose
+        Rglpk = Rglpk
     ), class = "supclass.control")
 }
 
@@ -341,7 +354,6 @@ supclass_mlog <- function(x, y, penalty, start, control)
     ## get_var_names <- function(x) {
     ##     apply(as.matrix(x), 2, .get_var_names, simplify = FALSE)
     ## }
-    ## TODO avoid t(Amat) by generating Amat in a different way
     ## prepare the matrix for the equality constraints
     A0 <- matrix(0, nrow = df, ncol = pp)
     for (i in seq_len(pp)) {
@@ -368,6 +380,7 @@ supclass_mlog <- function(x, y, penalty, start, control)
              }
     Aineq <- do.call(cbind, Aineq)
     Amat <- cbind(A0, Aineq)
+    t_Amat <- t(Amat)
     b0vec <- rep(0, pp + 2 * p * K)
     sc <- sqrt(.Machine$double.eps)
     ## initialize
@@ -380,7 +393,7 @@ supclass_mlog <- function(x, y, penalty, start, control)
                        } else {
                            start
                        }
-        eta <- apply(abs(outer_beta0[- 1L, ]), 1, max)
+        eta <- apply(abs(outer_beta0[- 1L, , drop = FALSE]), 1, max)
         inner_iter <- outer_iter <- 0
         ## main loop for one single lambda
         while (outer_iter < control$maxit) {
@@ -409,22 +422,24 @@ supclass_mlog <- function(x, y, penalty, start, control)
                     qpmadr::solveqp(
                                 H = Dmat,
                                 h = dvec,
-                                A = t(Amat),
+                                A = t_Amat,
                                 Alb = b0vec,
                                 Aub = c(rep(0, pp), rep(Inf, 2 * p * K))
                             )
                 }, error = function(e) e)
                 beta1 <- if (inherits(qres, "error")) {
-                             warning(qres,
-                                     "\nRevert to the solution from last step.")
+                             warning(
+                                 qres,
+                                 "\nReverted to the solution from last step."
+                             )
                              outer_beta0
                          } else {
                              get_beta(qres$solution)
                          }
                 if (anyNA(beta1)) {
-                    warning("Found NA in the beta estimates.",
+                    warning("Found NA in the beta estimates. ",
                             "The specified lambda was probably too small.",
-                            "\nRevert to the solution from last step.")
+                            "\nReverted to the solution from last step.")
                     beta1 <- outer_beta0
                 }
             } else {
@@ -441,7 +456,7 @@ supclass_mlog <- function(x, y, penalty, start, control)
                         qpmadr::solveqp(
                                     H = Dmat,
                                     h = dvec,
-                                    A = t(Amat),
+                                    A = t_Amat,
                                     Alb = b0vec,
                                     Aub = c(rep(0, pp), rep(Inf, 2 * p * K))
                                 )
@@ -449,7 +464,7 @@ supclass_mlog <- function(x, y, penalty, start, control)
                     if (inherits(qres, "error")) {
                         warning(
                             qres,
-                            "\nRevert to the soltion from last step."
+                            "\nReverted to the soltion from last step."
                         )
                         beta1 <- inner_beta0
                     } else {
@@ -457,9 +472,9 @@ supclass_mlog <- function(x, y, penalty, start, control)
                         eta <- get_eta(qres$solution)
                     }
                     if (anyNA(beta1)) {
-                        warning("Found NA in the beta estimates.",
-                                "The specified lambda was probably too small.",
-                                "\nRevert to the solution from last step.")
+                        warning("Found NA in the beta estimates. ",
+                                "The specified lambda was probably too small. ",
+                                "\nReverted to the solution from last step.")
                         beta1 <- inner_beta0
                     }
                     inner_diff <- rowL2sums(beta1 - inner_beta0)
@@ -528,6 +543,7 @@ supclass_mpsvm <- function(x, y, penalty, start, control)
              }
     Aineq <- do.call(cbind, Aineq)
     Amat <- cbind(A0, Aineq)
+    t_Amat <- t(Amat)
     b0vec <- rep(0, pp + 2 * p * K)
     ## prepare the vector for the objective function
     delta <- matrix(1, nrow = n, ncol = K) / n
@@ -565,28 +581,28 @@ supclass_mpsvm <- function(x, y, penalty, start, control)
                 qpmadr::solveqp(
                             H = Dmat,
                             h = dvec,
-                            A = t(Amat),
+                            A = t_Amat,
                             Alb = b0vec,
                             Aub = c(rep(0, pp), rep(Inf, 2 * p * K))
                         )
             }, error = function(e) e)
             beta1 <- if (inherits(qres, "error")) {
                          warning(qres,
-                                 "\nRevert to the solution from last step.")
+                                 "\nReverted to the solution from last step.")
                          beta0
                      } else {
                          get_beta(qres$solution)
                      }
             if (anyNA(beta1)) {
-                warning("Found NA in the beta estimates.",
+                warning("Found NA in the beta estimates. ",
                         "The specified lambda was probably too small.",
-                        "\nRevert to the solution from last step.")
+                        "\nReverted to the solution from last step.")
                 beta1 <- beta0
             }
         } else {
             ## main loop for one single lambda
             iter <- 0L
-            eta <- apply(abs(beta0[- 1L, ]), 1, max)
+            eta <- apply(abs(beta0[- 1L, , drop = FALSE]), 1, max)
             while (iter < control$maxit) {
                 iter <- iter + 1L
                 dp <- scaddp(control$scad_a, control$lambda[l], eta)
@@ -600,22 +616,22 @@ supclass_mpsvm <- function(x, y, penalty, start, control)
                     qpmadr::solveqp(
                                 H = Dmat,
                                 h = dvec,
-                                A = t(Amat),
+                                A = t_Amat,
                                 Alb = b0vec,
                                 Aub = c(rep(0, pp), rep(Inf, 2 * p * K))
                             )
                 }, error = function(e) e)
                 if (inherits(qres, "error")) {
-                    warning(qres, "\nRevert to the solution from last step.")
+                    warning(qres, "\nReverted to the solution from last step.")
                     beta1 <- beta0
                 } else {
                     beta1 <- get_beta(qres$solution)
                     eta <- get_eta(qres$solution)
                 }
                 if (anyNA(beta1)) {
-                    warning("Found NA in the beta estimates.",
+                    warning("Found NA in the beta estimates. ",
                             "The specified lambda was probably too small.",
-                            "\nRevert to the solution from last step.")
+                            "\nReverted to the solution from last step.")
                     beta1 <- beta0
                 }
                 tol <- rowL2sums(beta1 - beta0)
@@ -749,10 +765,7 @@ supclass_msvm <- function(x, y, penalty, start, control)
                                               val = - rep(Inf, ppK)
                                           )
                                       ),
-                                      control = list(
-                                          verbose = control$verbose
-                                          ## presolve = TRUE
-                                      ))
+                                      control = control$Rglpk)
                 ## Rsymphony::Rsymphony_solve_LP(
                 ##                obj = objective_in,
                 ##                mat = Amat,
@@ -771,7 +784,7 @@ supclass_msvm <- function(x, y, penalty, start, control)
             }, error = function(e) e)
             beta1 <- if (inherits(lres, "error")) {
                          warning(lres,
-                                 "\nRevert to the solution from last step.")
+                                 "\nReverted to the solution from last step.")
                          beta0
                      } else {
                          get_beta(lres$solution)
@@ -779,7 +792,7 @@ supclass_msvm <- function(x, y, penalty, start, control)
         } else {
             ## main loop for one single lambda
             iter <- 0L
-            eta <- apply(abs(beta0[- 1L, ]), 1, max)
+            eta <- apply(abs(beta0[- 1L, , drop = FALSE]), 1, max)
             while (iter < control$maxit) {
                 iter <- iter + 1L
                 dp <- scaddp(control$scad_a, control$lambda[l], eta)
@@ -795,14 +808,11 @@ supclass_msvm <- function(x, y, penalty, start, control)
                                                   val = - rep(Inf, ppK)
                                               )
                                           ),
-                                          control = list(
-                                              verbose = control$verbose,
-                                              presolver = TRUE
-                                          )),
+                                          control = control$Rglpk),
                     error = function(e) e
                 )
                 if (inherits(lres, "error")) {
-                    warning(lres, "\nRevert to the solution from last step.")
+                    warning(lres, "\nReverted to the solution from last step.")
                     beta1 <- beta0
                 } else {
                     eta <- get_eta(lres$solution)

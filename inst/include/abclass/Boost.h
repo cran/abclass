@@ -1,6 +1,6 @@
 //
 // R package abclass developed by Wenjie Wang <wang@wwenjie.org>
-// Copyright (C) 2021-2022 Eli Lilly and Company
+// Copyright (C) 2021-2025 Eli Lilly and Company
 //
 // This file is part of the R package abclass.
 //
@@ -20,19 +20,23 @@
 
 #include <RcppArmadillo.h>
 #include <stdexcept>
+#include "MarginLoss.h"
 #include "utils.h"
 
 namespace abclass
 {
 
-    class Boost
+    class Boost : public MarginLoss
     {
     protected:
         // cache
         double exp_inner_max_;
-        double inner_min_ = - 5.0;
+        double inner_min_ { - 5.0 };
+        double inner_min_p1_ { - 4.0 };
 
     public:
+        using MarginLoss::loss;
+
         Boost()
         {
             set_inner_min(inner_min_);
@@ -42,52 +46,28 @@ namespace abclass
         {
             set_inner_min(inner_min);
         }
-
         // loss function
-        inline double loss(const arma::vec& u,
-                           const arma::vec& obs_weight) const
+        inline double loss(const double u) const override
         {
-            arma::vec tmp { arma::zeros(u.n_elem) };
-            double tmp1 { 1 + inner_min_ };
-            for (size_t i {0}; i < u.n_elem; ++i) {
-                if (u[i] < inner_min_) {
-                    tmp[i] = (tmp1 - u[i]) * exp_inner_max_;
-                } else {
-                    tmp[i] = std::exp(- u[i]);
-                }
+            if (u < inner_min_) {
+                return (inner_min_p1_ - u) * exp_inner_max_;
             }
-            return arma::mean(obs_weight % tmp);
+            return std::exp(- u);
         }
 
         // the first derivative of the loss function
-        inline arma::vec dloss(const arma::vec& u) const
+        inline double dloss_du(const double u) const override
         {
-            arma::vec out { arma::zeros(u.n_elem) };
-            for (size_t i {0}; i < u.n_elem; ++i) {
-                if (u[i] < inner_min_) {
-                    out[i] = - exp_inner_max_;
-                } else {
-                    out[i] = - std::exp(- u[i]);
-                }
+            if (u < inner_min_) {
+                return - exp_inner_max_;
             }
-            return out;
+            return - std::exp(- u);
         }
 
-        // MM lowerbound
-        template <typename T>
-        inline arma::rowvec mm_lowerbound(const T& x,
-                                          const arma::vec& obs_weight)
+        // MM lowerbound factor
+        inline double mm_lowerbound() const
         {
-            T sqx { arma::square(x) };
-            double dn_obs { static_cast<double>(x.n_rows) };
-            return exp_inner_max_ * (obs_weight.t() * sqx) / dn_obs;
-
-        }
-        // for the intercept
-        inline double mm_lowerbound(const double dn_obs,
-                                    const arma::vec& obs_weight)
-        {
-            return exp_inner_max_ * arma::accu(obs_weight) / dn_obs;
+            return exp_inner_max_;
         }
 
         // setter
@@ -97,10 +77,10 @@ namespace abclass
                 throw std::range_error("The 'inner_min' cannot be positive.");
             }
             inner_min_ = inner_min;
+            inner_min_p1_ = 1.0 + inner_min_;
             exp_inner_max_ = std::exp(- inner_min_);
             return this;
         }
-
 
     };
 

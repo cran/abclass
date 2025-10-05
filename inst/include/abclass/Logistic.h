@@ -1,6 +1,6 @@
 //
 // R package abclass developed by Wenjie Wang <wang@wwenjie.org>
-// Copyright (C) 2021-2022 Eli Lilly and Company
+// Copyright (C) 2021-2025 Eli Lilly and Company
 //
 // This file is part of the R package abclass.
 //
@@ -19,48 +19,34 @@
 #define ABCLASS_LOGISTIC_H
 
 #include <RcppArmadillo.h>
-#include "utils.h"
+#include "MarginLoss.h"
 
 namespace abclass
 {
 
-    class Logistic
+    class Logistic : public MarginLoss
     {
     public:
-        Logistic() {};
+        using MarginLoss::loss;
+
+        Logistic() {}
 
         // loss function
-        inline double loss(const arma::vec& u,
-                           const arma::vec& obs_weight) const
+        inline double loss(const double u) const override
         {
-            return arma::mean(obs_weight % arma::log(1.0 + arma::exp(- u)));
+            return std::log(1.0 + std::exp(- u));
         }
 
         // the first derivative of the loss function
-        inline arma::vec dloss(const arma::vec& u) const
+        inline double dloss_du(const double u) const override
         {
-            arma::vec out { arma::zeros(u.n_elem) };
-            for (size_t i {0}; i < out.n_elem; ++i) {
-                out[i] = - 1.0 / (1.0 + std::exp(u[i]));
-            }
-            return out;
-            // return - 1.0 / (1.0 + arma::exp(u));
+            return - 1.0 / (1.0 + std::exp(u));
         }
 
-        // MM lowerbound
-        template <typename T>
-        inline arma::rowvec mm_lowerbound(const T& x,
-                                          const arma::vec& obs_weight)
+        // MM lowerbound factor
+        inline double mm_lowerbound() const
         {
-            T sqx { arma::square(x) };
-            double dn_obs { static_cast<double>(x.n_rows) };
-            return obs_weight.t() * sqx / (4.0 * dn_obs);
-        }
-        // for the intercept
-        inline double mm_lowerbound(const double dn_obs,
-                                    const arma::vec& obs_weight)
-        {
-            return arma::accu(obs_weight) / (4.0 * dn_obs);
+            return 0.25;
         }
 
     };

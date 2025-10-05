@@ -7,9 +7,11 @@
 cv.abclass(
   x,
   y,
+  loss = c("logistic", "boost", "hinge.boost", "lum"),
+  penalty = c("glasso", "lasso"),
+  weights = NULL,
+  offset = NULL,
   intercept = TRUE,
-  weight = NULL,
-  loss = c("logistic", "boost", "hinge-boost", "lum"),
   control = list(),
   nfolds = 5L,
   stratified = TRUE,
@@ -28,19 +30,24 @@ to include an intercept term instead of adding an all-one column to
 \item{y}{An integer vector, a character vector, or a factor vector
 representing the response label.}
 
-\item{intercept}{A logical value indicating if an intercept should be
-considered in the model.  The default value is \code{TRUE} and the
-intercept is excluded from regularization.}
-
-\item{weight}{A numeric vector for nonnegative observation weights. Equal
-observation weights are used by default.}
-
 \item{loss}{A character value specifying the loss function.  The available
 options are \code{"logistic"} for the logistic deviance loss,
 \code{"boost"} for the exponential loss approximating Boosting machines,
-\code{"hinge-boost"} for hybrid of SVM and AdaBoost machine, and
+\code{"hinge.boost"} for hybrid of SVM and AdaBoost machine, and
 \code{"lum"} for largin-margin unified machines (LUM).  See Liu, et
 al. (2011) for details.}
+
+\item{penalty}{A character vector specifying the name of the penalty.}
+
+\item{weights}{A numeric vector for nonnegative observation weights. Equal
+observation weights are used by default.}
+
+\item{offset}{An optional numeric matrix for offsets of the decision
+functions.}
+
+\item{intercept}{A logical value indicating if an intercept should be
+considered in the model.  The default value is \code{TRUE} and the
+intercept is excluded from regularization.}
 
 \item{control}{A list of control parameters. See \code{abclass.control()}
 for details.}
@@ -63,14 +70,15 @@ the same lambda sequence of the main fit.  The option \code{"lambda"}
 will be applied if a meaningful \code{lambda} is specified.  The default
 value is \code{"fraction"}.}
 
-\item{refit}{A logical value or a named list specifying if and how a refit
-for those selected predictors should be performed.  The default valie is
-\code{FALSE}.}
+\item{refit}{A logical value indicating if a new classifier should be
+trained using the selected predictors or a named list that will be
+passed to \code{abclass.control()} to specify how the new classifier
+should be trained.}
 
 \item{...}{Other control parameters passed to \code{abclass.control()}.}
 }
 \value{
-An S3 object of class \code{cv.abclass}.
+An S3 object of class \code{cv.abclass} and \code{abclass}.
 }
 \description{
 Tune the regularization parameter for an angle-based large-margin classifier

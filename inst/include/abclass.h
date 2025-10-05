@@ -1,6 +1,6 @@
 //
 // R package abclass developed by Wenjie Wang <wang@wwenjie.org>
-// Copyright (C) 2021-2022 Eli Lilly and Company
+// Copyright (C) 2021-2025 Eli Lilly and Company
 //
 // This file is part of the R package abclass.
 //
@@ -18,44 +18,45 @@
 #ifndef ABCLASS_H
 #define ABCLASS_H
 
-// class
+#ifndef ARMA_NO_DEBUG
+#define ARMA_NO_DEBUG
+#endif
+
+// classes
 #include "abclass/Abclass.h"
-#include "abclass/AbclassGroup.h"
+#include "abclass/AbclassLinear.h"
+#include "abclass/AbclassCD.h"
+#include "abclass/AbclassBlockCD.h"
 #include "abclass/Control.h"
 #include "abclass/Simplex.h"
-// loss
+#include "abclass/Mellowmax.h"
+
+// losses
+#include "abclass/MarginLoss.h"
 #include "abclass/Boost.h"
 #include "abclass/Logistic.h"
 #include "abclass/HingeBoost.h"
 #include "abclass/Lum.h"
+#include "abclass/Mlogit.h"
+#include "abclass/LikeBoost.h"
+#include "abclass/LikeLogistic.h"
+#include "abclass/LikeHingeBoost.h"
+#include "abclass/LikeLum.h"
 
-// with elastic-net
+// penalties
 #include "abclass/AbclassNet.h"
-#include "abclass/LogisticNet.h"
-#include "abclass/BoostNet.h"
-#include "abclass/HingeBoostNet.h"
-#include "abclass/LumNet.h"
-
-// with group lasso
+#include "abclass/AbclassSCAD.h"
+#include "abclass/AbclassMCP.h"
 #include "abclass/AbclassGroupLasso.h"
-#include "abclass/LogisticGroupLasso.h"
-#include "abclass/BoostGroupLasso.h"
-#include "abclass/HingeBoostGroupLasso.h"
-#include "abclass/LumGroupLasso.h"
-
-// with group scad
 #include "abclass/AbclassGroupSCAD.h"
-#include "abclass/LogisticGroupSCAD.h"
-#include "abclass/BoostGroupSCAD.h"
-#include "abclass/HingeBoostGroupSCAD.h"
-#include "abclass/LumGroupSCAD.h"
-
-// with group mcp
 #include "abclass/AbclassGroupMCP.h"
-#include "abclass/LogisticGroupMCP.h"
-#include "abclass/BoostGroupMCP.h"
-#include "abclass/HingeBoostGroupMCP.h"
-#include "abclass/LumGroupMCP.h"
+#include "abclass/AbclassCompMCP.h"
+#include "abclass/AbclassGEL.h"
+#include "abclass/AbclassMellowL1.h"
+#include "abclass/AbclassMellowMCP.h"
+
+// aliases
+#include "abclass/template_alias.h"
 
 // utils
 #include "abclass/utils.h"

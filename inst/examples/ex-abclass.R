@@ -4,10 +4,10 @@ set.seed(123)
 ## toy examples for demonstration purpose
 ## reference: example 1 in Zhang and Liu (2014)
 ntrain <- 100 # size of training set
-ntest <- 100  # size of testing set
-p0 <- 5       # number of actual predictors
-p1 <- 5       # number of random predictors
-k <- 5        # number of categories
+ntest <- 1000 # size of testing set
+p0 <- 2       # number of actual predictors
+p1 <- 2       # number of random predictors
+k <- 3        # number of categories
 
 n <- ntrain + ntest; p <- p0 + p1
 train_idx <- seq_len(ntrain)
@@ -24,18 +24,14 @@ y <- factor(paste0("label_", y))
 train_y <- y[train_idx]
 test_y <- y[- train_idx]
 
-## Regularization through ridge penalty
-control1 <- abclass.control(nlambda = 5, lambda_min_ratio = 1e-3,
-                            alpha = 1, grouped = FALSE)
-model1 <- abclass(train_x, train_y, loss = "logistic",
-                  control = control1)
-pred1 <- predict(model1, test_x, s = 5)
-table(test_y, pred1)
-mean(test_y == pred1) # accuracy
+## regularization through group lasso penalty
+model <- abclass(
+    x = train_x,
+    y = train_y,
+    loss = "logistic",
+    penalty = "glasso"
+)
 
-## groupwise regularization via group lasso
-model2 <- abclass(train_x, train_y, loss = "boost",
-                  grouped = TRUE, nlambda = 5)
-pred2 <- predict(model2, test_x, s = 5)
-table(test_y, pred2)
-mean(test_y == pred2) # accuracy
+pred <- predict(model, test_x, s = 5)
+mean(test_y == pred) # accuracy
+table(test_y, pred)

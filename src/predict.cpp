@@ -1,6 +1,6 @@
 //
 // R package abclass developed by Wenjie Wang <wang@wwenjie.org>
-// Copyright (C) 2021-2022 Eli Lilly and Company
+// Copyright (C) 2021-2025 Eli Lilly and Company
 //
 // This file is part of the R package abclass.
 //
@@ -18,124 +18,208 @@
 #include <RcppArmadillo.h>
 #include <abclass.h>
 
-template <typename T_loss, typename T_x>
-arma::mat predict_prob(const arma::mat& beta, const T_x& x)
+template <typename T_x>
+arma::mat predict_prob(const T_x& x,
+                       const arma::mat& beta,
+                       const arma::mat& offset,
+                       const size_t loss_id,
+                       const Rcpp::List& loss_params)
 {
     const unsigned int k { beta.n_cols + 1 };
-    abclass::Abclass<T_loss, T_x> object { k };
-    object.set_intercept(beta.n_rows > x.n_cols);
-    return object.predict_prob(beta, x);
+    switch (loss_id) {
+        case 1:
+        {
+            abclass::AbclassLinear<abclass::Logistic, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_prob(beta, x, offset);
+        }
+        case 2:
+        {
+            abclass::AbclassLinear<abclass::Boost, T_x> object { k };
+            object.loss_fun_.set_inner_min(loss_params["boost_umin"]);
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_prob(beta, x, offset);
+        }
+        case 3:
+        {
+            abclass::AbclassLinear<abclass::HingeBoost, T_x> object { k };
+            object.loss_fun_.set_c(loss_params["lum_c"]);
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_prob(beta, x, offset);
+        }
+        case 4:
+        {
+            abclass::AbclassLinear<abclass::Lum, T_x> object { k };
+            object.loss_fun_.set_ac(loss_params["lum_a"], loss_params["lum_c"]);
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_prob(beta, x, offset);
+        }
+        case 5:
+        {
+            abclass::AbclassLinear<abclass::Mlogit, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_prob(beta, x, offset);
+        }
+        case 6:
+        {
+            abclass::AbclassLinear<abclass::LikeLogistic, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_prob(beta, x, offset);
+        }
+        case 7:
+        {
+            abclass::AbclassLinear<abclass::LikeBoost, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_prob(beta, x, offset);
+        }
+        case 8:
+        {
+            abclass::AbclassLinear<abclass::LikeHingeBoost, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_prob(beta, x, offset);
+        }
+        case 9:
+        {
+            abclass::AbclassLinear<abclass::LikeLum, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_prob(beta, x, offset);
+        }
+        default:
+            break;
+    }
+    return arma::mat();
 }
 
-template <typename T_loss, typename T_x>
-arma::uvec predict_y(const arma::mat& beta, const T_x& x)
+template <typename T_x>
+arma::uvec predict_y(const T_x& x,
+                     const arma::mat& beta,
+                     const arma::mat& offset,
+                     const size_t loss_id)
 {
     const unsigned int k { beta.n_cols + 1 };
-    abclass::Abclass<T_loss, T_x> object { k };
+    switch (loss_id) {
+        case 1:
+        {
+            abclass::AbclassLinear<abclass::Logistic, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_y(beta, x, offset);
+        }
+        case 2:
+        {
+            abclass::AbclassLinear<abclass::Boost, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_y(beta, x, offset);
+        }
+        case 3:
+        {
+            abclass::AbclassLinear<abclass::HingeBoost, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_y(beta, x, offset);
+        }
+        case 4:
+        {
+            abclass::AbclassLinear<abclass::Lum, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_y(beta, x, offset);
+        }
+        case 5:
+        {
+            abclass::AbclassLinear<abclass::Mlogit, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_y(beta, x, offset);
+        }
+        case 6:
+        {
+            abclass::AbclassLinear<abclass::LikeLogistic, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_y(beta, x, offset);
+        }
+        case 7:
+        {
+            abclass::AbclassLinear<abclass::LikeBoost, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_y(beta, x, offset);
+        }
+        case 8:
+        {
+            abclass::AbclassLinear<abclass::LikeHingeBoost, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_y(beta, x, offset);
+        }
+        case 9:
+        {
+            abclass::AbclassLinear<abclass::LikeLum, T_x> object { k };
+            object.set_intercept(beta.n_rows > x.n_cols);
+            return object.predict_y(beta, x, offset);
+        }
+        default:
+            break;
+    }
+    return arma::uvec();
+}
+
+template <typename T_x>
+arma::mat predict_link(const T_x& x,
+                       const arma::mat& beta,
+                       const arma::mat& offset)
+{
+    const unsigned int k { beta.n_cols + 1 };
+    abclass::AbclassLinear<abclass::Logistic, T_x> object { k };
     object.set_intercept(beta.n_rows > x.n_cols);
-    return object.predict_y(beta, x);
+    return object.linear_score(beta, x, offset);
 }
 
-// logistic ==================================================================
+
 // [[Rcpp::export]]
-arma::mat r_logistic_pred_prob(const arma::mat& beta,
-                                  const arma::mat& x)
+arma::mat rcpp_pred_prob(const arma::mat& beta,
+                         const arma::mat& x,
+                         const arma::mat& offset,
+                         const size_t loss_id,
+                         const Rcpp::List& loss_params)
 {
-    return predict_prob<abclass::Logistic, arma::mat>(beta, x);
-}
-// [[Rcpp::export]]
-arma::mat r_logistic_pred_prob_sp(const arma::mat& beta,
-                                  const arma::sp_mat& x)
-{
-    return predict_prob<abclass::Logistic, arma::sp_mat>(beta, x);
-}
-// [[Rcpp::export]]
-arma::uvec r_logistic_pred_y(const arma::mat& beta,
-                             const arma::mat& x)
-{
-    return predict_y<abclass::Logistic, arma::mat>(beta, x);
-}
-// [[Rcpp::export]]
-arma::uvec r_logistic_pred_y_sp(const arma::mat& beta,
-                                const arma::sp_mat& x)
-{
-    return predict_y<abclass::Logistic, arma::sp_mat>(beta, x);
+    return predict_prob(x, beta, offset, loss_id, loss_params);
 }
 
-// boost =====================================================================
 // [[Rcpp::export]]
-arma::mat r_boost_pred_prob(const arma::mat& beta,
-                            const arma::mat& x)
+arma::mat rcpp_pred_prob_sp(const arma::mat& beta,
+                            const arma::sp_mat& x,
+                            const arma::mat& offset,
+                            const size_t loss_id,
+                            const Rcpp::List& loss_params)
 {
-    return predict_prob<abclass::Boost, arma::mat>(beta, x);
-}
-// [[Rcpp::export]]
-arma::mat r_boost_pred_prob_sp(const arma::mat& beta,
-                               const arma::sp_mat& x)
-{
-    return predict_prob<abclass::Boost, arma::sp_mat>(beta, x);
-}
-// [[Rcpp::export]]
-arma::uvec r_boost_pred_y(const arma::mat& beta,
-                          const arma::mat& x)
-{
-    return predict_y<abclass::Boost, arma::mat>(beta, x);
-}
-// [[Rcpp::export]]
-arma::uvec r_boost_pred_y_sp(const arma::mat& beta,
-                             const arma::sp_mat& x)
-{
-    return predict_y<abclass::Boost, arma::sp_mat>(beta, x);
+    return predict_prob(x, beta, offset, loss_id, loss_params);
 }
 
-// hinge-boost ===============================================================
 // [[Rcpp::export]]
-arma::mat r_hinge_boost_pred_prob(const arma::mat& beta,
-                                  const arma::mat& x)
+arma::uvec rcpp_pred_y(const arma::mat& beta,
+                       const arma::mat& x,
+                       const arma::mat& offset,
+                       const size_t loss_id)
 {
-    return predict_prob<abclass::HingeBoost, arma::mat>(beta, x);
-}
-// [[Rcpp::export]]
-arma::mat r_hinge_boost_pred_prob_sp(const arma::mat& beta,
-                                     const arma::sp_mat& x)
-{
-    return predict_prob<abclass::HingeBoost, arma::sp_mat>(beta, x);
-}
-// [[Rcpp::export]]
-arma::uvec r_hinge_boost_pred_y(const arma::mat& beta,
-                                const arma::mat& x)
-{
-    return predict_y<abclass::HingeBoost, arma::mat>(beta, x);
-}
-// [[Rcpp::export]]
-arma::uvec r_hinge_boost_pred_y_sp(const arma::mat& beta,
-                                   const arma::sp_mat& x)
-{
-    return predict_y<abclass::HingeBoost, arma::sp_mat>(beta, x);
+    return predict_y(x, beta, offset, loss_id);
 }
 
-// lum =======================================================================
 // [[Rcpp::export]]
-arma::mat r_lum_pred_prob(const arma::mat& beta,
-                          const arma::mat& x)
+arma::uvec rcpp_pred_y_sp(const arma::mat& beta,
+                          const arma::sp_mat& x,
+                          const arma::mat& offset,
+                          const size_t loss_id)
 {
-    return predict_prob<abclass::Lum, arma::mat>(beta, x);
+    return predict_y(x, beta, offset, loss_id);
 }
+
 // [[Rcpp::export]]
-arma::mat r_lum_pred_prob_sp(const arma::mat& beta,
-                             const arma::sp_mat& x)
+arma::mat rcpp_pred_link(const arma::mat& beta,
+                         const arma::mat& x,
+                         const arma::mat& offset)
 {
-    return predict_prob<abclass::Lum, arma::sp_mat>(beta, x);
+    return predict_link(x, beta, offset);
 }
+
 // [[Rcpp::export]]
-arma::uvec r_lum_pred_y(const arma::mat& beta,
-                        const arma::mat& x)
+arma::mat rcpp_pred_link_sp(const arma::mat& beta,
+                            const arma::sp_mat& x,
+                            const arma::mat& offset)
 {
-    return predict_y<abclass::Lum, arma::mat>(beta, x);
-}
-// [[Rcpp::export]]
-arma::uvec r_lum_pred_y_sp(const arma::mat& beta,
-                           const arma::sp_mat& x)
-{
-    return predict_y<abclass::Lum, arma::sp_mat>(beta, x);
+    return predict_link(x, beta, offset);
 }

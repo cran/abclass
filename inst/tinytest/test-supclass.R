@@ -1,6 +1,6 @@
 ntrain <- 100
 ntest <- 1000
-p <- 3
+p <- 2
 k <- 3
 n <- ntrain + ntest
 train_idx <- seq_len(ntrain)
@@ -25,7 +25,7 @@ expect_true(mean(test_y == pred) > 0.5)
 pred2 <- predict(model, as.data.frame(test_x), s = 1)
 expect_equal(pred, pred2)
 
-prob <- predict(model, test_x, type = "prob")
+prob <- predict(model, test_x, type = "prob", s = 1)
 expect_equal(dim(prob), c(ntest, k))
 expect_equivalent(dim(coef(model, s = 1)), c(p + 1, k))
 expect_error(predict(model), "newx")

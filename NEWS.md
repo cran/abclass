@@ -1,3 +1,16 @@
+# abclass 0.5.0
+
+## Major changes
+
+* Simplified specification of group penalty via `abclass.control()`.
+
+## Minor changes
+
+* Changed the default `alignment` to `lambda` for `cv.abclass()` and `refit` in
+  `et.abclass()` if a sequence of lambda's is specified.  A warning message
+  would be thrown out for the former.
+
+
 # abclass 0.4.0
 
 ## New features

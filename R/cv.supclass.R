@@ -1,6 +1,6 @@
 ##
 ## R package abclass developed by Wenjie Wang <wang@wwenjie.org>
-## Copyright (C) 2021-2022 Eli Lilly and Company
+## Copyright (C) 2021-2025 Eli Lilly and Company
 ##
 ## This file is part of the R package abclass.
 ##
@@ -111,7 +111,7 @@ cv.supclass <- function(x, y,
                     select_lambda(cv_accuracy_mean, cv_accuracy_sd))
     res$cross_validation <- c(res$cross_validation, cv_res0)
     ## add class
-    class(res) <- c(sprintf("%s_sup%s", model, penalty),
+    class(res) <- c(sprintf("supclass_%s_%s", model, penalty),
                     "cv.supclass", "supclass")
     ## return
     res

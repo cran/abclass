@@ -1,6 +1,6 @@
 ##
 ## R package abclass developed by Wenjie Wang <wang@wwenjie.org>
-## Copyright (C) 2021-2022 Eli Lilly and Company
+## Copyright (C) 2021-2025 Eli Lilly and Company
 ##
 ## This file is part of the R package abclass.
 ##
@@ -15,38 +15,40 @@
 ## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 ##
 
+## encode loss and penalty functions
+.all_abclass_losses <- c(
+    "logistic", "boost", "hinge.boost", "lum", "mlogit",
+    "mle.logistic", "mle.boost", "mle.hinge.boost", "mle.lum"
+)
+.id_loss <- function(loss)
+{
+    match(loss, .all_abclass_losses)
+}
+.all_abclass_penalties <- c("lasso", "scad", "mcp",
+                            "glasso", "gscad", "gmcp",
+                            "cmcp", "gel", "mlasso", "mmcp")
+.id_penalty <- function(penalty)
+{
+    match(penalty, .all_abclass_penalties)
+}
+
 ## engine function that should be called internally only
 .abclass <- function(x, y,
+                     loss,
+                     penalty,
+                     weights = NULL,
+                     offset = NULL,
                      intercept = TRUE,
-                     weight = NULL,
-                     loss = "logistic",
-                     ## regularization
-                     lambda = NULL,
-                     alpha = 0.5,
-                     nlambda = 50L,
-                     lambda_min_ratio = NULL,
-                     grouped = TRUE,
-                     group_weight = NULL,
-                     group_penalty = "lasso",
-                     dgamma = 1.0,
-                     ## loss
-                     lum_a = 1.0,
-                     lum_c = 1.0,
-                     boost_umin = - 5.0,
-                     ## control
-                     maxit = 1e5L,
-                     epsilon = 1e-3,
-                     standardize = TRUE,
-                     varying_active_set = TRUE,
-                     verbose = 0,
+                     ## abclass.control
+                     control = abclass.control(),
                      ## cv
                      nfolds = 0L,
                      stratified = TRUE,
                      alignment = 0L,
                      ## et
                      nstages = 0L,
-                     ## internal
-                     main_fit = TRUE)
+                     ## moml
+                     moml_args = NULL)
 {
     ## pre-process
     is_x_sparse <- FALSE
@@ -56,88 +58,107 @@
         x <- as.matrix(x)
     }
     cat_y <- cat2z(y)
-    if (is.null(lambda_min_ratio)) {
-        lambda_min_ratio <- if (nrow(x) < ncol(x)) 1e-4 else 1e-2
+    if (is.null(control$lambda_min_ratio)) {
+        control$lambda_min_ratio <- if (nrow(x) > ncol(x)) 1e-4 else 1e-2
+    }
+    ## determine the loss and penalty function
+    ## better to append new options to the existing ones
+    loss_id <- .id_loss(loss)
+    penalty_id <- .id_penalty(penalty)
+    ## process alignment
+    all_alignment <- c("fraction", "lambda")
+    if (is.numeric(alignment)) {
+        alignment <- as.integer(alignment[1L])
+    } else if (is.character(alignment)) {
+        alignment <- match.arg(alignment, choices = all_alignment)
+        alignment <- match(alignment, all_alignment) - 1L
+    } else {
+        stop("Invalid 'alignment'.")
+    }
+    ## adjust lambda alignment
+    if (alignment == 0L && length(control$lambda) > 0) {
+        if (control$verbose) {
+            message("Changed to `alignment` = 'lambda' ",
+                    "for the specified lambda sequence.")
+        }
+        alignment <- 1L
     }
     ## prepare arguments
-    default_args_to_call <- list(
-        x = x,
-        y = cat_y$y,
-        intercept = intercept,
-        weight = null2num0(weight),
-        lambda = null2num0(lambda),
-        alpha = alpha,
-        nlambda = as.integer(nlambda),
-        lambda_min_ratio = lambda_min_ratio,
-        group_weight = null2num0(group_weight),
-        dgamma = dgamma,
-        lum_a = lum_a,
-        lum_c = lum_c,
-        boost_umin = boost_umin,
-        maxit = as.integer(maxit),
-        epsilon = epsilon,
-        standardize = standardize,
-        varying_active_set = varying_active_set,
-        verbose = as.integer(verbose),
-        nfolds = as.integer(nfolds),
-        stratified = stratified,
-        alignment = as.integer(alignment),
-        nstages = as.integer(nstages),
-        main_fit = main_fit
+    ctrl <- c(
+        control,
+        list(loss_id = loss_id,
+             penalty_id = penalty_id,
+             weights = null2num0(weights),
+             offset = null2mat0(offset),
+             intercept = intercept,
+             nfolds = as.integer(nfolds),
+             stratified = stratified,
+             alignment = as.integer(alignment),
+             nstages = as.integer(nstages),
+             owl_reward = null2num0(moml_args$reward))
     )
-    fun_to_call <- if (grouped) {
-                       sprintf("r_%s_g%s", loss, group_penalty)
-                   } else {
-                       sprintf("r_%s_net", loss)
-                   }
-    if (is_x_sparse) {
-        fun_to_call <- paste0(fun_to_call, "_sp")
+    ctrl$lambda <- null2num0(ctrl$lambda)
+    ctrl$penalty_factor = null2num0(ctrl$penalty_factor)
+    ## set up weights in the outcome-weighted learning
+    if (length(moml_args) > 0) {
+        owl_weight <- abs(moml_args$reward) / moml_args$propensity_score
+        if (length(ctrl$weights) > 0) {
+            ctrl$weights <- ctrl$weights * owl_weight
+        } else {
+            ctrl$weights <- owl_weight
+        }
     }
-    args_to_call <- default_args_to_call[
-        names(default_args_to_call) %in% formal_names(fun_to_call)
-    ]
-    res <- do.call(fun_to_call, args_to_call)
+    ## main
+    call_list <- list(x = x, y = cat_y$y, control = ctrl)
+    fun_to_call <- if (is_x_sparse) {
+                       rcpp_abclass_fit_sp
+                   } else {
+                       rcpp_abclass_fit
+                   }
+    res <- do.call(fun_to_call, call_list)
     ## post-process
     res$category <- cat_y
-    res$intercept <- intercept
-    loss2 <- gsub("_", "-", loss, fixed = TRUE)
-    res$loss <- switch(
-        loss2,
-        "logistic" = list(loss = loss2),
-        "boost" = list(loss = loss2, boost_umin = boost_umin),
-        "hinge-boost" = list(loss = loss2, lum_c = lum_c),
-        "lum" = list(loss = loss2, lum_a = lum_a, lum_c = lum_c)
+    res$category$k <- length(res$category$label)
+    res$specs <- list(
+        loss = loss,
+        penalty = penalty,
+        weights = res$weights,
+        offset = res$offset,
+        intercept = intercept
     )
-    res$control <- list(
-        standardize = standardize,
-        maxit = maxit,
-        epsilon = epsilon,
-        varying_active_set = varying_active_set,
-        verbose = verbose
-    )
-    if (default_args_to_call$nfolds == 0L) {
+    if (is.null(weights)) {
+        res$specs["weights"] <- list(NULL)
+    }
+    if (is.null(offset)) {
+        res$specs["offset"] <- list(NULL)
+    }
+    res$weights <- NULL
+    res$offset <- NULL
+    res$control <- control
+    if (call_list$control$nfolds == 0L) {
         res$cross_validation <- NULL
+    } else {
+        res$cross_validation$alignment <- all_alignment[
+            res$cross_validation$alignment + 1L
+        ]
+    }
+    if (call_list$control$nstages == 0L) {
+        res$et <- NULL
+    } else {
+        ## update the selected index to one-based index
+        res$et$selected <- res$et$selected + 1L
     }
     ## update regularization
-    return_lambda <-
-        if (default_args_to_call$nstages == 0L) {
-            c("alpha", "lambda", "lambda_max")
-        } else {
-            ## update the selected index to one-based index
-            res$et$selected <- res$et$selected + 1L
-            "alpha"
-        }
-    res$regularization <-
-        if (grouped) {
-            common_pars <- c(return_lambda, "group_weight")
-            if (group_penalty == "lasso") {
-                res$regularization[common_pars]
-            } else {
-                res$regularization[c(common_pars, "dgamma", "gamma")]
-            }
-        } else {
-            res$regularization[return_lambda]
-        }
+    return_lambda <- c("alpha", "lambda", "penalty_factor",
+                       "lambda_max", "l1_lambda_max")
+    if (grepl("scad|mcp", penalty)) {
+        return_lambda <- c(return_lambda, "ncv_kappa", "ncv_gamma")
+    } else if (penalty == "gel") {
+        return_lambda <- c(return_lambda, "gel_tau")
+    } else if (grepl("^mellow", penalty)) {
+        return_lambda <- c(return_lambda, "mellowmax_omega")
+    }
+    res$regularization <- res$regularization[return_lambda]
     ## return
     res
 }
